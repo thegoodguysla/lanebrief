@@ -52,6 +52,12 @@ export async function POST(request: Request) {
       break;
     }
 
+    case "customer.subscription.updated": {
+      const subscription = event.data.object as Stripe.Subscription;
+      console.log(`Subscription updated: ${subscription.id}, status: ${subscription.status}`);
+      break;
+    }
+
     case "customer.subscription.deleted": {
       const subscription = event.data.object as Stripe.Subscription;
       console.log(`Subscription cancelled: ${subscription.id}`);
