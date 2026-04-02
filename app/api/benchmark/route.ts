@@ -92,8 +92,7 @@ export async function POST(request: Request) {
     } satisfies BenchmarkResponse);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    const stack = err instanceof Error ? err.stack : undefined;
-    console.error("[benchmark] AI error:", message, stack);
-    return Response.json({ error: "AI service unavailable", detail: message }, { status: 503 });
+    console.error("[benchmark] AI error:", message);
+    return Response.json({ error: "AI service unavailable" }, { status: 503 });
   }
 }
