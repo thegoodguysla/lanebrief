@@ -163,12 +163,105 @@ function buildSampleRequestEmail(name: string, lanes?: string): string {
   `;
 }
 
+// Email 1 — Lane Health Check immediate delivery (Day 0)
+function buildLaneHealthCheckEmail(name: string, lanes?: string): string {
+  const firstName = name.split(" ")[0];
+  const lanesText = lanes || "your submitted lanes";
+  const firstLane = lanes?.split(",")[0]?.trim() || "your top lane";
+  return `
+<div style="font-family: Arial, Helvetica, sans-serif; font-size: 15px; line-height: 1.6; color: #0D1F3C; max-width: 600px;">
+  <p>Hi ${firstName},</p>
+
+  <p>Your free Lane Health Check is being prepared for: <strong>${lanesText}</strong>.</p>
+
+  <p>You'll have it in your inbox within a few hours. Here's what we're analyzing:</p>
+
+  <table cellpadding="0" cellspacing="0" border="0" style="margin: 16px 0; width: 100%; border-collapse: collapse;">
+    <tr style="background-color: #F0FDFA;">
+      <td style="padding: 10px 14px; font-size: 14px; font-weight: bold; color: #0D1F3C; border-bottom: 1px solid #E2F5F2;">📊 30-Day Rate Trend</td>
+      <td style="padding: 10px 14px; font-size: 13px; color: #4A5568; border-bottom: 1px solid #E2F5F2;">Spot movement vs. contract benchmark</td>
+    </tr>
+    <tr>
+      <td style="padding: 10px 14px; font-size: 14px; font-weight: bold; color: #0D1F3C; border-bottom: 1px solid #E2F5F2;">🚛 Capacity Index</td>
+      <td style="padding: 10px 14px; font-size: 13px; color: #4A5568; border-bottom: 1px solid #E2F5F2;">Tight / Normal / Loose with explanation</td>
+    </tr>
+    <tr style="background-color: #F0FDFA;">
+      <td style="padding: 10px 14px; font-size: 14px; font-weight: bold; color: #0D1F3C; border-bottom: 1px solid #E2F5F2;">⚠️ Seasonal Risk Flag</td>
+      <td style="padding: 10px 14px; font-size: 13px; color: #4A5568; border-bottom: 1px solid #E2F5F2;">Forward-looking capacity alert</td>
+    </tr>
+    <tr>
+      <td style="padding: 10px 14px; font-size: 14px; font-weight: bold; color: #0D1F3C; border-bottom: 1px solid #E2F5F2;">💡 3 Intel Bullets</td>
+      <td style="padding: 10px 14px; font-size: 13px; color: #4A5568; border-bottom: 1px solid #E2F5F2;">Data-backed insights on your specific lane</td>
+    </tr>
+    <tr style="background-color: #F0FDFA;">
+      <td style="padding: 10px 14px; font-size: 14px; font-weight: bold; color: #0D1F3C;">🎯 Rate Protection Rec</td>
+      <td style="padding: 10px 14px; font-size: 13px; color: #4A5568;">What to do with this intel right now</td>
+    </tr>
+  </table>
+
+  <p>One thing to watch on <strong>${firstLane}</strong> while you wait: capacity on this corridor tends to shift meaningfully in Q2 — the report will give you the specific signal.</p>
+
+  <p>If you want this kind of intel every week across all your top lanes, that's exactly what LaneBrief delivers. $199/mo — or reply and I'll answer any questions.</p>
+
+  <p>— Nick</p>
+
+  ${SIGNATURE_NICK}
+</div>
+  `;
+}
+
+// Email 2 — Day 3 value-add follow-up (sent manually or via Resend broadcast)
+export function buildLaneHealthCheckDay3Email(name: string, lane: string, insight: string): string {
+  const firstName = name.split(" ")[0];
+  return `
+<div style="font-family: Arial, Helvetica, sans-serif; font-size: 15px; line-height: 1.6; color: #0D1F3C; max-width: 600px;">
+  <p>Hi ${firstName},</p>
+
+  <p>A quick follow-up on your ${lane} brief.</p>
+
+  <p>The pattern most brokers overlook: ${insight}</p>
+
+  <p>This is the kind of data that lets you quote ahead of the market instead of reacting to it. LaneBrief tracks this automatically every week.</p>
+
+  <p>Worth $199/mo?</p>
+
+  <p>— Nick</p>
+
+  ${SIGNATURE_NICK}
+</div>
+  `;
+}
+
+// Email 3 — Day 7 conversion (sent manually or via Resend broadcast)
+export function buildLaneHealthCheckDay7Email(name: string): string {
+  const firstName = name.split(" ")[0];
+  return `
+<div style="font-family: Arial, Helvetica, sans-serif; font-size: 15px; line-height: 1.6; color: #0D1F3C; max-width: 600px;">
+  <p>Hi ${firstName},</p>
+
+  <p>Last note on this.</p>
+
+  <p>Your free report covered one lane. Most brokers I work with have 5–15 active lanes — each one carries margin risk.</p>
+
+  <p>LaneBrief monitors all of them and sends you a weekly brief. First month is risk-free.</p>
+
+  <p>Want to try it? <a href="https://lanebrief.com" style="color: #00C2A8;">lanebrief.com</a></p>
+
+  <p>— Nick</p>
+
+  ${SIGNATURE_NICK}
+</div>
+  `;
+}
+
 type ContactPayload = {
   name: string;
   email: string;
   company?: string;
   lanes?: string;
-  type: "signup" | "sample_request";
+  type: "signup" | "sample_request" | "lane_health_check";
+  utmSource?: string;
+  utmCampaign?: string;
 };
 
 export async function POST(request: Request) {
@@ -180,7 +273,7 @@ export async function POST(request: Request) {
     return Response.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  const { name, email, company: _company, lanes, type } = body;
+  const { name, email, company: _company, lanes, type, utmSource, utmCampaign } = body;
 
   if (!name || !email || !type) {
     return Response.json(
@@ -189,25 +282,26 @@ export async function POST(request: Request) {
     );
   }
 
-  if (type !== "signup" && type !== "sample_request") {
+  if (type !== "signup" && type !== "sample_request" && type !== "lane_health_check") {
     return Response.json(
-      { error: 'type must be "signup" or "sample_request"' },
+      { error: 'type must be "signup", "sample_request", or "lane_health_check"' },
       { status: 400 }
     );
   }
 
   // Always log the lead so it's captured in Vercel function logs
-  console.log(`[LEAD] type=${type} name="${name}" email="${email}" lanes="${lanes || ""}"`)
+  console.log(
+    `[LEAD] type=${type} name="${name}" email="${email}" lanes="${lanes || ""}" utm_source="${utmSource || ""}" utm_campaign="${utmCampaign || ""}"`
+  );
 
   if (!process.env.RESEND_API_KEY) {
     console.warn("[LEAD] RESEND_API_KEY not set — lead logged but no email sent");
     return Response.json({ success: true, emailSent: false });
   }
 
-  // Use verified custom domain when available, fall back to Resend default
-  const domainVerified = process.env.RESEND_DOMAIN_VERIFIED === "true";
-  const fromNick = domainVerified ? "nick@lanebrief.com" : "LaneBrief <onboarding@resend.dev>";
-  const fromIntel = domainVerified ? "intel@lanebrief.com" : "LaneBrief Intel <onboarding@resend.dev>";
+  // Verified sending domain: email.lanebrief.com (reply-to uses root domain via Google Workspace)
+  const fromNick = "Nick Taylor <nick@email.lanebrief.com>";
+  const fromIntel = "LaneBrief Intel <intel@email.lanebrief.com>";
 
   try {
     if (type === "signup") {
@@ -217,6 +311,14 @@ export async function POST(request: Request) {
         to: email,
         subject: "Your lane intelligence is ready — next step inside",
         html: buildSignupEmail(name),
+      });
+    } else if (type === "lane_health_check") {
+      await getResend().emails.send({
+        from: fromNick,
+        replyTo: "nick@lanebrief.com",
+        to: email,
+        subject: "Your free LaneBrief report is ready",
+        html: buildLaneHealthCheckEmail(name, lanes),
       });
     } else {
       await getResend().emails.send({
