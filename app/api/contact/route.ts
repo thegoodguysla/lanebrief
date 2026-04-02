@@ -196,6 +196,14 @@ export async function POST(request: Request) {
     );
   }
 
+  // Always log the lead so it's captured in Vercel function logs
+  console.log(`[LEAD] type=${type} name="${name}" email="${email}" lanes="${lanes || ""}"`)
+
+  if (!process.env.RESEND_API_KEY) {
+    console.warn("[LEAD] RESEND_API_KEY not set — lead logged but no email sent");
+    return Response.json({ success: true, emailSent: false });
+  }
+
   try {
     if (type === "signup") {
       await getResend().emails.send({
@@ -215,7 +223,7 @@ export async function POST(request: Request) {
       });
     }
 
-    return Response.json({ success: true });
+    return Response.json({ success: true, emailSent: true });
   } catch (err) {
     console.error("Resend error:", err);
     return Response.json({ error: "Failed to send email" }, { status: 500 });
