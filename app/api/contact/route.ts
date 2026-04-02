@@ -204,10 +204,15 @@ export async function POST(request: Request) {
     return Response.json({ success: true, emailSent: false });
   }
 
+  // Use verified custom domain when available, fall back to Resend default
+  const domainVerified = process.env.RESEND_DOMAIN_VERIFIED === "true";
+  const fromNick = domainVerified ? "nick@lanebrief.com" : "LaneBrief <onboarding@resend.dev>";
+  const fromIntel = domainVerified ? "intel@lanebrief.com" : "LaneBrief Intel <onboarding@resend.dev>";
+
   try {
     if (type === "signup") {
       await getResend().emails.send({
-        from: "nick@lanebrief.com",
+        from: fromNick,
         replyTo: "nick@lanebrief.com",
         to: email,
         subject: "Your lane intelligence is ready — next step inside",
@@ -215,7 +220,7 @@ export async function POST(request: Request) {
       });
     } else {
       await getResend().emails.send({
-        from: "intel@lanebrief.com",
+        from: fromIntel,
         replyTo: "nick@lanebrief.com",
         to: email,
         subject: "Your LaneBrief sample is being prepared",
