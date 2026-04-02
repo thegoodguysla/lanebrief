@@ -27,6 +27,54 @@ export default function LaneBriefLanding() {
   const [submitted, setSubmitted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
+  // Rate Benchmarker state
+  const [bmOrigin, setBmOrigin] = useState("");
+  const [bmDestination, setBmDestination] = useState("");
+  const [bmRate, setBmRate] = useState("");
+  const [bmEquipment, setBmEquipment] = useState("dry van");
+  const [bmLoading, setBmLoading] = useState(false);
+  const [bmResult, setBmResult] = useState<{
+    market_avg_usd_per_mile: number;
+    delta_pct: number;
+    verdict: "above_market" | "at_market" | "below_market";
+    verdict_label: string;
+    disclaimer: string;
+  } | null>(null);
+  const [bmError, setBmError] = useState<string | null>(null);
+
+  const handleBenchmark = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const rate = parseFloat(bmRate);
+    if (!bmOrigin || !bmDestination || isNaN(rate)) return;
+    setBmLoading(true);
+    setBmResult(null);
+    setBmError(null);
+    try {
+      const res = await fetch("/api/benchmark", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          origin: bmOrigin,
+          destination: bmDestination,
+          rate_per_mile: rate,
+          equipment: bmEquipment,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        setBmError(err.error || "Something went wrong. Try again.");
+      } else {
+        const data = await res.json();
+        setBmResult(data);
+        sendGAEvent("event", "form_submit", { form_name: "rate_benchmarker" });
+      }
+    } catch {
+      setBmError("Network error. Please try again.");
+    } finally {
+      setBmLoading(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name || !email) return;
@@ -60,6 +108,7 @@ export default function LaneBriefLanding() {
           <nav aria-label="Main navigation" className="hidden md:flex items-center gap-6 text-sm text-muted-foreground">
             <a href="#how-it-works" className="hover:text-foreground transition-colors">How it works</a>
             <a href="#sample" className="hover:text-foreground transition-colors">Sample report</a>
+            <a href="#benchmarker" className="hover:text-foreground transition-colors">Rate check</a>
             <a href="#pricing" className="hover:text-foreground transition-colors">Pricing</a>
           </nav>
           <a href="#get-started" className={cn(buttonVariants({ size: "sm" }), "bg-primary text-primary-foreground hover:bg-primary/90")}>
@@ -448,6 +497,158 @@ export default function LaneBriefLanding() {
                 </div>
               </div>
             </article>
+          </div>
+        </section>
+
+        <Separator className="opacity-20" />
+
+        {/* ── Rate Benchmarker ─────────────────────────────────────────── */}
+        <section id="benchmarker" aria-labelledby="benchmarker-heading" className="py-20 px-4 bg-card/20">
+          <div className="max-w-3xl mx-auto">
+            <div className="text-center mb-10">
+              <Badge className="mb-4 bg-primary/15 text-primary border border-primary/30">
+                Free tool — no sign-up required
+              </Badge>
+              <h2 id="benchmarker-heading" className="text-3xl sm:text-4xl font-bold">
+                Is your rate competitive?
+              </h2>
+              <p className="mt-4 text-muted-foreground max-w-xl mx-auto">
+                Enter your lane and rate. Our AI benchmarks it against current market conditions in seconds.
+              </p>
+            </div>
+
+            <Card className="bg-card border-border/50">
+              <CardContent className="p-6 sm:p-8">
+                <form onSubmit={handleBenchmark} className="space-y-4" aria-label="Rate benchmarker">
+                  <div className="grid sm:grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <label htmlFor="bm-origin" className="text-sm font-medium text-foreground">Origin</label>
+                      <Input
+                        id="bm-origin"
+                        type="text"
+                        placeholder="e.g. Chicago, IL"
+                        value={bmOrigin}
+                        onChange={(e) => setBmOrigin(e.target.value)}
+                        required
+                        className="bg-muted/50 border-border/60"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label htmlFor="bm-dest" className="text-sm font-medium text-foreground">Destination</label>
+                      <Input
+                        id="bm-dest"
+                        type="text"
+                        placeholder="e.g. Dallas, TX"
+                        value={bmDestination}
+                        onChange={(e) => setBmDestination(e.target.value)}
+                        required
+                        className="bg-muted/50 border-border/60"
+                      />
+                    </div>
+                  </div>
+                  <div className="grid sm:grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <label htmlFor="bm-rate" className="text-sm font-medium text-foreground">Your rate ($/mile)</label>
+                      <Input
+                        id="bm-rate"
+                        type="number"
+                        step="0.01"
+                        min="0.50"
+                        max="15"
+                        placeholder="e.g. 2.45"
+                        value={bmRate}
+                        onChange={(e) => setBmRate(e.target.value)}
+                        required
+                        className="bg-muted/50 border-border/60"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <label htmlFor="bm-equipment" className="text-sm font-medium text-foreground">Equipment</label>
+                      <select
+                        id="bm-equipment"
+                        value={bmEquipment}
+                        onChange={(e) => setBmEquipment(e.target.value)}
+                        className="flex h-10 w-full rounded-md border border-border/60 bg-muted/50 px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
+                      >
+                        <option value="dry van">Dry Van</option>
+                        <option value="flatbed">Flatbed</option>
+                        <option value="refrigerated">Refrigerated (Reefer)</option>
+                        <option value="step deck">Step Deck</option>
+                      </select>
+                    </div>
+                  </div>
+                  <Button
+                    type="submit"
+                    disabled={bmLoading}
+                    className="w-full bg-primary text-primary-foreground hover:bg-primary/90 h-11"
+                  >
+                    {bmLoading ? "Checking market…" : "Benchmark My Rate"}
+                  </Button>
+                </form>
+
+                {bmError && (
+                  <div role="alert" className="mt-6 p-4 rounded-lg border border-destructive/40 bg-destructive/10 text-sm text-destructive">
+                    {bmError}
+                  </div>
+                )}
+
+                {bmResult && (
+                  <div role="region" aria-label="Benchmark result" className="mt-6 space-y-4">
+                    <div className={cn(
+                      "p-5 rounded-lg border",
+                      bmResult.verdict === "above_market" && "border-green-500/40 bg-green-500/10",
+                      bmResult.verdict === "at_market" && "border-primary/40 bg-primary/10",
+                      bmResult.verdict === "below_market" && "border-yellow-500/40 bg-yellow-500/10",
+                    )}>
+                      <div className="flex items-start justify-between gap-4 flex-wrap mb-3">
+                        <div>
+                          <p className={cn(
+                            "font-bold text-lg",
+                            bmResult.verdict === "above_market" && "text-green-400",
+                            bmResult.verdict === "at_market" && "text-primary",
+                            bmResult.verdict === "below_market" && "text-yellow-400",
+                          )}>
+                            {bmResult.verdict_label}
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-1 font-mono">
+                            {bmResult.delta_pct > 0 ? "+" : ""}{bmResult.delta_pct.toFixed(1)}% vs market avg
+                          </p>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <p className="text-xs text-muted-foreground">Market avg</p>
+                          <p className="font-mono font-bold text-xl text-foreground">
+                            ${bmResult.market_avg_usd_per_mile.toFixed(2)}<span className="text-sm font-normal text-muted-foreground">/mi</span>
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3 text-sm">
+                        <div className="flex-1 bg-background/40 rounded-full h-2 overflow-hidden">
+                          <div
+                            className={cn(
+                              "h-full rounded-full transition-all",
+                              bmResult.verdict === "above_market" && "bg-green-500",
+                              bmResult.verdict === "at_market" && "bg-primary",
+                              bmResult.verdict === "below_market" && "bg-yellow-500",
+                            )}
+                            style={{ width: `${Math.min(100, Math.max(5, 50 + bmResult.delta_pct * 5))}%` }}
+                            aria-hidden="true"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    <p className="text-xs text-muted-foreground text-center">{bmResult.disclaimer}</p>
+
+                    <div className="text-center pt-2">
+                      <p className="text-sm text-muted-foreground mb-3">Want the full lane intelligence brief — rate trends, capacity signals, 30-day forecast?</p>
+                      <a href="#get-started" className={cn(buttonVariants({ size: "sm" }), "bg-primary text-primary-foreground hover:bg-primary/90")}>
+                        Get your free lane brief →
+                      </a>
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
           </div>
         </section>
 
