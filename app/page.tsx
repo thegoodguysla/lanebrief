@@ -156,6 +156,14 @@ export default function LaneBriefLanding() {
             No credit card. No commitment. Just data.
           </p>
 
+          <p className="mt-6 text-sm text-muted-foreground">
+            Or{" "}
+            <a href="#benchmarker" className="underline underline-offset-2 hover:text-foreground transition-colors font-medium">
+              check your rate for free →
+            </a>
+            {" "}Enter a lane + rate per mile. Know if you&apos;re above or below market in 10 seconds.
+          </p>
+
           {/* Stat strip */}
           <div className="mt-16 grid grid-cols-3 gap-6 sm:gap-12 max-w-xl w-full" role="list" aria-label="Key statistics">
             {[
