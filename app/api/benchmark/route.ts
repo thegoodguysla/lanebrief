@@ -79,7 +79,11 @@ export async function POST(request: Request) {
 
     let parsed: Omit<BenchmarkResponse, "confidence" | "disclaimer">;
     try {
-      parsed = JSON.parse(text.trim());
+      // Strip markdown code fences if the model wraps the JSON
+      let cleaned = text.trim();
+      const fenceMatch = cleaned.match(/```(?:json)?\s*([\s\S]*?)```/);
+      if (fenceMatch) cleaned = fenceMatch[1].trim();
+      parsed = JSON.parse(cleaned);
     } catch {
       console.error("[benchmark] Failed to parse AI response:", text);
       return Response.json({ error: "Failed to parse AI response" }, { status: 502 });
