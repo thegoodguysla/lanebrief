@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useUser, UserButton } from "@clerk/nextjs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -25,6 +26,7 @@ type Brief = {
 
 export default function DashboardPage() {
   const { user, isLoaded } = useUser();
+  const router = useRouter();
   const [lanes, setLanes] = useState<Lane[]>([]);
   const [briefs, setBriefs] = useState<Brief[]>([]);
   const [origin, setOrigin] = useState("");
@@ -34,15 +36,27 @@ export default function DashboardPage() {
   const [generatingFor, setGeneratingFor] = useState<string | null>(null);
   const [selectedBrief, setSelectedBrief] = useState<Brief | null>(null);
   const [error, setError] = useState("");
-  const [synced, setSynced] = useState(false);
+  const [initialized, setInitialized] = useState(false);
 
   useEffect(() => {
-    if (isLoaded && user && !synced) {
-      fetch("/api/user/sync", { method: "POST" })
-        .then(() => setSynced(true))
-        .then(() => Promise.all([loadLanes(), loadBriefs()]));
-    }
-  }, [isLoaded, user, synced]);
+    if (!isLoaded || !user || initialized) return;
+
+    fetch("/api/user/sync", { method: "POST" })
+      .then(() => Promise.all([
+        fetch("/api/lanes").then((r) => r.json()),
+        fetch("/api/briefs").then((r) => r.json()),
+      ]))
+      .then(([lanesData, briefsData]) => {
+        if (lanesData.lanes?.length === 0) {
+          router.replace("/onboarding");
+          return;
+        }
+        setLanes(lanesData.lanes ?? []);
+        setBriefs(briefsData.briefs ?? []);
+        setInitialized(true);
+      })
+      .catch(() => setInitialized(true));
+  }, [isLoaded, user, initialized, router]);
 
   async function loadLanes() {
     const res = await fetch("/api/lanes");
@@ -105,13 +119,19 @@ export default function DashboardPage() {
         const data = await res.json();
         setBriefs((prev) => [data.brief, ...prev]);
         setSelectedBrief(data.brief);
+        await loadBriefs();
       }
     } finally {
       setGeneratingFor(null);
     }
   }
 
-  if (!isLoaded) {
+  // Get the most recent brief for a given lane
+  function latestBriefForLane(laneId: string): Brief | undefined {
+    return briefs.find((b) => b.laneId === laneId);
+  }
+
+  if (!isLoaded || !initialized) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <p className="text-muted-foreground">Loading…</p>
@@ -134,19 +154,102 @@ export default function DashboardPage() {
       <main className="max-w-5xl mx-auto px-4 py-8 space-y-10">
         {/* Header */}
         <div>
-          <h1 className="text-2xl font-semibold">Your Lane Dashboard</h1>
+          <h1 className="text-2xl font-semibold">
+            {user?.firstName ? `${user.firstName}'s Lane Dashboard` : "Your Lane Dashboard"}
+          </h1>
           <p className="text-muted-foreground mt-1">
             Track up to 5 lanes. Generate AI-powered freight intelligence briefs anytime.
           </p>
         </div>
 
-        {/* Add lane form */}
-        <section className="space-y-3">
+        {/* Lane cards */}
+        <section className="space-y-4">
           <h2 className="text-sm font-medium uppercase tracking-wider text-muted-foreground">
             My Lanes ({lanes.length}/5)
           </h2>
+
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {lanes.map((lane) => {
+              const brief = latestBriefForLane(lane.id);
+              const isGenerating = generatingFor === lane.id;
+              return (
+                <div
+                  key={lane.id}
+                  className="rounded-lg border border-border p-4 flex flex-col gap-3 hover:border-border/80 transition-colors"
+                >
+                  {/* Lane header */}
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <p className="font-medium text-sm leading-snug">
+                        {lane.origin} → {lane.destination}
+                      </p>
+                      <Badge variant="outline" className="mt-1 text-xs capitalize">
+                        {lane.equipment.replace("_", " ")}
+                      </Badge>
+                    </div>
+                    <button
+                      onClick={() => removeLane(lane.id)}
+                      className="text-muted-foreground hover:text-destructive text-xs shrink-0"
+                    >
+                      Remove
+                    </button>
+                  </div>
+
+                  {/* Brief preview */}
+                  {brief ? (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <Badge variant="secondary" className="text-xs">
+                          v{brief.version}
+                        </Badge>
+                        <span className="text-xs text-muted-foreground">
+                          {new Date(brief.generatedAt).toLocaleDateString("en-US", {
+                            month: "short",
+                            day: "numeric",
+                          })}
+                        </span>
+                      </div>
+                      <p className="text-xs text-muted-foreground line-clamp-3 leading-relaxed">
+                        {brief.content.replace(/#+\s/g, "").replace(/\*\*/g, "").slice(0, 180)}…
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => setSelectedBrief(brief)}
+                          className="text-xs text-primary hover:underline"
+                        >
+                          Read full brief
+                        </button>
+                        <span className="text-muted-foreground">·</span>
+                        <Link
+                          href={`/api/pdf/pitch?laneId=${lane.id}`}
+                          target="_blank"
+                          className="text-xs text-muted-foreground hover:text-foreground hover:underline"
+                        >
+                          Shipper pitch PDF
+                        </Link>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">No brief yet for this lane.</p>
+                  )}
+
+                  <Button
+                    size="sm"
+                    variant={brief ? "outline" : "default"}
+                    onClick={() => generateBrief(lane.id)}
+                    disabled={isGenerating}
+                    className="mt-auto"
+                  >
+                    {isGenerating ? "Generating…" : brief ? "Regenerate Brief" : "Generate Brief"}
+                  </Button>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Add lane form */}
           {lanes.length < 5 && (
-            <form onSubmit={addLane} className="flex flex-wrap gap-2 items-end">
+            <form onSubmit={addLane} className="flex flex-wrap gap-2 items-end pt-2">
               <div className="flex flex-col gap-1">
                 <label className="text-xs text-muted-foreground">Origin</label>
                 <Input
@@ -185,46 +288,6 @@ export default function DashboardPage() {
             </form>
           )}
           {error && <p className="text-sm text-destructive">{error}</p>}
-
-          {/* Lane list */}
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {lanes.map((lane) => (
-              <div
-                key={lane.id}
-                className="rounded-lg border border-border p-4 flex flex-col gap-3"
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <p className="font-medium text-sm">
-                      {lane.origin} → {lane.destination}
-                    </p>
-                    <Badge variant="outline" className="mt-1 text-xs capitalize">
-                      {lane.equipment.replace("_", " ")}
-                    </Badge>
-                  </div>
-                  <button
-                    onClick={() => removeLane(lane.id)}
-                    className="text-muted-foreground hover:text-destructive text-xs"
-                  >
-                    Remove
-                  </button>
-                </div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => generateBrief(lane.id)}
-                  disabled={generatingFor === lane.id}
-                >
-                  {generatingFor === lane.id ? "Generating…" : "Generate Brief"}
-                </Button>
-              </div>
-            ))}
-            {lanes.length === 0 && (
-              <p className="text-sm text-muted-foreground col-span-3">
-                No lanes yet. Add your first lane above.
-              </p>
-            )}
-          </div>
         </section>
 
         {/* Brief viewer */}
@@ -232,7 +295,7 @@ export default function DashboardPage() {
           <section className="space-y-3">
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-medium uppercase tracking-wider text-muted-foreground">
-                Latest Brief
+                Brief: {selectedBrief.title}
               </h2>
               <button
                 onClick={() => setSelectedBrief(null)}
@@ -242,7 +305,6 @@ export default function DashboardPage() {
               </button>
             </div>
             <div className="rounded-lg border border-border p-6 prose prose-sm max-w-none dark:prose-invert">
-              <h3 className="font-semibold mb-3">{selectedBrief.title}</h3>
               <pre className="whitespace-pre-wrap text-sm font-sans leading-relaxed">
                 {selectedBrief.content}
               </pre>

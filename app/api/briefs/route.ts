@@ -4,7 +4,6 @@ import { users, briefs, lanes } from "@/lib/db/schema";
 import { eq, desc, and } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { generateText } from "ai";
-import { anthropic } from "@ai-sdk/anthropic";
 
 async function getDbUser(clerkId: string) {
   const db = getDb();
@@ -62,7 +61,7 @@ export async function POST(req: Request) {
   const year = now.getFullYear();
 
   const { text } = await generateText({
-    model: anthropic("claude-sonnet-4.6"),
+    model: "anthropic/claude-sonnet-4.6",
     prompt: `You are a freight market analyst writing a concise intelligence brief for an independent freight broker.
 
 Lane: ${lane.origin} → ${lane.destination}
