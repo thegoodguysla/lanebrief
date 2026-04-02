@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { sendGAEvent } from "@next/third-parties/google";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -36,6 +37,7 @@ export default function LaneBriefLanding() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name, email, type: "signup" }),
       });
+      sendGAEvent("event", "form_submit", { form_name: "waitlist" });
     } finally {
       setSubmitting(false);
       setSubmitted(true);
