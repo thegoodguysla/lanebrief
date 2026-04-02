@@ -49,7 +49,6 @@ Rules:
 
 export async function POST(request: Request) {
   let body: BenchmarkRequest;
-
   try {
     body = await request.json();
   } catch {
@@ -69,12 +68,13 @@ export async function POST(request: Request) {
     return Response.json({ error: "rate_per_mile must be a positive number" }, { status: 400 });
   }
 
-  const prompt = buildPrompt(origin, destination, rate_per_mile, equipment);
-
   try {
+    // Routes through Vercel AI Gateway via OIDC (auto on Vercel deployments).
+    // Requires AI Gateway to be enabled in the Vercel project dashboard.
     const { text } = await generateText({
       model: "anthropic/claude-haiku-4.5",
-      prompt,
+      prompt: buildPrompt(origin, destination, rate_per_mile, equipment),
+      maxOutputTokens: 256,
     });
 
     let parsed: Omit<BenchmarkResponse, "confidence" | "disclaimer">;
@@ -85,13 +85,11 @@ export async function POST(request: Request) {
       return Response.json({ error: "Failed to parse AI response" }, { status: 502 });
     }
 
-    const response: BenchmarkResponse = {
+    return Response.json({
       ...parsed,
       confidence: "ai_estimated",
       disclaimer: "AI-estimated from training data. Not a substitute for live market rates.",
-    };
-
-    return Response.json(response);
+    } satisfies BenchmarkResponse);
   } catch (err) {
     console.error("[benchmark] AI error:", err);
     return Response.json({ error: "AI service unavailable" }, { status: 503 });
