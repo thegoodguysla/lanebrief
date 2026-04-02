@@ -117,24 +117,28 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  return (
-    <ClerkProvider>
-      <html
-        lang="en"
-        className={`${inter.variable} ${geistMono.variable} h-full antialiased`}
-      >
-        <head>
-          <script
-            type="application/ld+json"
-            dangerouslySetInnerHTML={{ __html: JSON.stringify(organizationJsonLd) }}
-          />
-        </head>
-        <body className="min-h-full flex flex-col">{children}</body>
-        <Analytics />
-        {process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID && (
-          <GoogleAnalytics gaId={process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID} />
-        )}
-      </html>
-    </ClerkProvider>
+  const content = (
+    <html
+      lang="en"
+      className={`${inter.variable} ${geistMono.variable} h-full antialiased`}
+    >
+      <head>
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(organizationJsonLd) }}
+        />
+      </head>
+      <body className="min-h-full flex flex-col">{children}</body>
+      <Analytics />
+      {process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID && (
+        <GoogleAnalytics gaId={process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID} />
+      )}
+    </html>
   );
+
+  if (process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY) {
+    return <ClerkProvider>{content}</ClerkProvider>;
+  }
+
+  return content;
 }
