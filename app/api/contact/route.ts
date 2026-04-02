@@ -1,6 +1,8 @@
 import { Resend } from "resend";
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+function getResend() {
+  return new Resend(process.env.RESEND_API_KEY);
+}
 
 // Signature 1 — Nick (nick@lanebrief.com)
 const SIGNATURE_NICK = `
@@ -196,7 +198,7 @@ export async function POST(request: Request) {
 
   try {
     if (type === "signup") {
-      await resend.emails.send({
+      await getResend().emails.send({
         from: "nick@lanebrief.com",
         replyTo: "nick@lanebrief.com",
         to: email,
@@ -204,7 +206,7 @@ export async function POST(request: Request) {
         html: buildSignupEmail(name),
       });
     } else {
-      await resend.emails.send({
+      await getResend().emails.send({
         from: "intel@lanebrief.com",
         replyTo: "nick@lanebrief.com",
         to: email,
