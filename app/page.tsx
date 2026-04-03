@@ -944,17 +944,6 @@ export default function LaneBriefLanding() {
               </p>
             </div>
 
-        {/* ── Pricing ──────────────────────────────────────────────────── */}
-        <section id="pricing" aria-labelledby="pricing-heading" className="py-20 px-4">
-          <div className="max-w-5xl mx-auto">
-            <div className="text-center mb-12">
-              <h2 id="pricing-heading" className="text-3xl sm:text-4xl font-bold">Simple, transparent pricing.</h2>
-              <p className="mt-4 text-muted-foreground max-w-lg mx-auto">
-                Three plans. No hidden fees. Cancel any time.
-                Save 2 months with annual billing.
-              </p>
-            </div>
-
             <div className="grid sm:grid-cols-3 gap-6 items-start max-w-4xl mx-auto mb-12">
               {/* Scout */}
               <Card className="border-border/40">
@@ -1016,8 +1005,6 @@ export default function LaneBriefLanding() {
                       "Rate Alerts (weekly capacity digest)",
                       "Analyst access via email",
                       "Autonomous Fleet Intel (beta)",
-                      "Weekly capacity alerts",
-                      "Analyst access via email",
                     ].map((item) => (
                       <li key={item} className="flex items-start gap-2">
                         <span className="text-primary mt-0.5 shrink-0" aria-hidden="true">✓</span>
@@ -1058,8 +1045,6 @@ export default function LaneBriefLanding() {
                       "Rate Alerts (weekly capacity digest)",
                       "Priority analyst access",
                       "Autonomous Fleet Intel (beta)",
-                      "Weekly capacity alerts",
-                      "Priority analyst access",
                     ].map((item) => (
                       <li key={item} className="flex items-start gap-2">
                         <span className="text-primary mt-0.5 shrink-0" aria-hidden="true">✓</span>
