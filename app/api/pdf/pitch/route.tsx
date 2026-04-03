@@ -8,6 +8,10 @@ import {
   renderToBuffer,
 } from "@react-pdf/renderer";
 import { generateText } from "ai";
+import { auth, currentUser } from "@clerk/nextjs/server";
+import { getDb } from "@/lib/db";
+import { lanes, users } from "@/lib/db/schema";
+import { eq, and } from "drizzle-orm";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -334,7 +338,78 @@ function PitchDocument({
   );
 }
 
-// ─── Route Handler ──────────────────────────────────────────────────────────────
+// ─── GET Handler (dashboard link: /api/pdf/pitch?laneId=...) ──────────────────
+export async function GET(request: Request) {
+  const { userId } = await auth();
+  if (!userId) return Response.json({ error: "Unauthorized" }, { status: 401 });
+
+  const { searchParams } = new URL(request.url);
+  const laneId = searchParams.get("laneId");
+  if (!laneId) {
+    return Response.json({ error: "Missing laneId query param" }, { status: 400 });
+  }
+
+  const db = getDb();
+  const [dbUser] = await db.select().from(users).where(eq(users.clerkId, userId)).limit(1);
+  if (!dbUser) return Response.json({ error: "User not found" }, { status: 404 });
+
+  const [lane] = await db
+    .select()
+    .from(lanes)
+    .where(and(eq(lanes.id, laneId), eq(lanes.userId, dbUser.id)))
+    .limit(1);
+  if (!lane) return Response.json({ error: "Lane not found" }, { status: 404 });
+
+  const clerkUser = await currentUser();
+  const brokerName =
+    [clerkUser?.firstName, clerkUser?.lastName].filter(Boolean).join(" ").trim() ||
+    clerkUser?.emailAddresses?.[0]?.emailAddress ||
+    "LaneBrief";
+
+  const origin = lane.origin.trim();
+  const destination = lane.destination.trim();
+  const date = new Date().toLocaleDateString("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
+
+  let pitchData: PitchAIData;
+  try {
+    pitchData = await generatePitchData(origin, destination);
+  } catch (err) {
+    console.error("[pdf/pitch] AI generation error:", err);
+    return Response.json({ error: "AI service unavailable" }, { status: 503 });
+  }
+
+  let pdfBuffer: Buffer;
+  try {
+    pdfBuffer = await renderToBuffer(
+      <PitchDocument
+        origin={origin}
+        destination={destination}
+        brokerName={brokerName}
+        data={pitchData}
+        date={date}
+      />
+    );
+  } catch (err) {
+    console.error("[pdf/pitch] PDF render error:", err);
+    return Response.json({ error: "PDF generation failed" }, { status: 500 });
+  }
+
+  const filename = `lanebrief-pitch-${origin.replace(/[^a-z0-9]/gi, "-").toLowerCase()}-to-${destination.replace(/[^a-z0-9]/gi, "-").toLowerCase()}.pdf`;
+
+  return new Response(new Uint8Array(pdfBuffer), {
+    headers: {
+      "Content-Type": "application/pdf",
+      "Content-Disposition": `attachment; filename="${filename}"`,
+      "Cache-Control": "no-store",
+    },
+  });
+}
+
+// ─── POST Handler ──────────────────────────────────────────────────────────────
 type PitchRequest = {
   lane: { origin: string; destination: string };
   broker_name?: string;

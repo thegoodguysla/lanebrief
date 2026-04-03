@@ -32,7 +32,7 @@ export async function POST() {
 
   const [newUser] = await db
     .insert(users)
-    .values({ id: randomUUID(), clerkId: userId, email })
+    .values({ id: randomUUID(), clerkId: userId, email, alertOptIn: false })
     .returning();
 
   return Response.json({ user: newUser }, { status: 201 });

@@ -201,7 +201,7 @@ function buildLaneHealthCheckEmail(name: string, lanes?: string): string {
 
   <p>One thing to watch on <strong>${firstLane}</strong> while you wait: capacity on this corridor tends to shift meaningfully in Q2 — the report will give you the specific signal.</p>
 
-  <p>If you want this kind of intel every week across all your top lanes, that's exactly what LaneBrief delivers. $199/mo — or reply and I'll answer any questions.</p>
+  <p>If you want this kind of intel every week across all your top lanes, that's exactly what LaneBrief delivers. Plans start at $199/mo for 3 lanes — or reply and I'll answer any questions.</p>
 
   <p>— Nick</p>
 
@@ -223,7 +223,7 @@ export function buildLaneHealthCheckDay3Email(name: string, lane: string, insigh
 
   <p>This is the kind of data that lets you quote ahead of the market instead of reacting to it. LaneBrief tracks this automatically every week.</p>
 
-  <p>Worth $199/mo?</p>
+  <p>Plans start at $199/mo. Worth it for one better-priced load?</p>
 
   <p>— Nick</p>
 
@@ -243,7 +243,7 @@ export function buildLaneHealthCheckDay7Email(name: string): string {
 
   <p>Your free report covered one lane. Most brokers I work with have 5–15 active lanes — each one carries margin risk.</p>
 
-  <p>LaneBrief monitors all of them and sends you a weekly brief. First month is risk-free.</p>
+  <p>LaneBrief monitors all of them. Scout covers 3 lanes at $199/mo, Navigator covers 5 at $349/mo, and Command covers 10 at $599/mo. Save 2 months with annual billing.</p>
 
   <p>Want to try it? <a href="https://lanebrief.com" style="color: #00C2A8;">lanebrief.com</a></p>
 

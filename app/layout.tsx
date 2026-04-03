@@ -20,7 +20,7 @@ export const metadata: Metadata = {
   metadataBase: new URL("https://lanebrief.com"),
   title: "LaneBrief — Freight Intelligence & Lane Analysis for Independent Brokers",
   description:
-    "Stop flying blind on lane rates. LaneBrief delivers monthly AI-powered freight intelligence briefs — lane analysis, rate forecasts, and freight market data — for $199/month. Built for independent brokers.",
+    "Stop flying blind on lane rates. LaneBrief delivers monthly AI-powered freight intelligence briefs — lane analysis, rate forecasts, and freight market data — starting at $199/month. Built for independent brokers.",
   keywords: [
     "freight intelligence",
     "lane analysis",
@@ -44,7 +44,7 @@ export const metadata: Metadata = {
   openGraph: {
     title: "LaneBrief — Freight Intelligence & Lane Analysis",
     description:
-      "Stop flying blind on lane rates. Monthly AI-powered freight market data, lane analysis, and rate forecasts built for independent brokers. $199/month.",
+      "Stop flying blind on lane rates. Monthly AI-powered freight market data, lane analysis, and rate forecasts built for independent brokers. Starting at $199/month.",
     url: "https://lanebrief.com",
     siteName: "LaneBrief",
     type: "website",
@@ -54,7 +54,7 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "LaneBrief — Freight Intelligence for Independent Brokers",
     description:
-      "Lane-level freight market data, rate forecasts, and capacity signals. $199/month — not $3,600/year.",
+      "Lane-level freight market data, rate forecasts, and capacity signals. Starting at $199/month — not $3,600/year.",
     creator: "@lanebrief",
     site: "@lanebrief",
   },
@@ -87,15 +87,49 @@ const organizationJsonLd = {
       description:
         "Monthly AI-powered freight intelligence briefs with lane analysis, rate forecasts, and freight market data for independent freight brokers.",
       offers: {
-        "@type": "Offer",
-        price: "199",
+        "@type": "AggregateOffer",
+        lowPrice: "199",
+        highPrice: "599",
         priceCurrency: "USD",
-        priceSpecification: {
-          "@type": "UnitPriceSpecification",
-          price: "199",
-          priceCurrency: "USD",
-          unitCode: "MON",
-        },
+        offerCount: 3,
+        offers: [
+          {
+            "@type": "Offer",
+            name: "Scout — 3 Lanes",
+            price: "199",
+            priceCurrency: "USD",
+            priceSpecification: {
+              "@type": "UnitPriceSpecification",
+              price: "199",
+              priceCurrency: "USD",
+              unitCode: "MON",
+            },
+          },
+          {
+            "@type": "Offer",
+            name: "Navigator — 5 Lanes",
+            price: "349",
+            priceCurrency: "USD",
+            priceSpecification: {
+              "@type": "UnitPriceSpecification",
+              price: "349",
+              priceCurrency: "USD",
+              unitCode: "MON",
+            },
+          },
+          {
+            "@type": "Offer",
+            name: "Command — 10 Lanes",
+            price: "599",
+            priceCurrency: "USD",
+            priceSpecification: {
+              "@type": "UnitPriceSpecification",
+              price: "599",
+              priceCurrency: "USD",
+              unitCode: "MON",
+            },
+          },
+        ],
       },
       audience: {
         "@type": "BusinessAudience",

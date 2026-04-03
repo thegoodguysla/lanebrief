@@ -19,6 +19,7 @@ type LaneWithUser = {
   origin: string;
   destination: string;
   equipment: string;
+  alertThresholdPct: number;
   userId: string;
   userEmail: string;
 };
@@ -154,13 +155,14 @@ export async function GET(req: Request) {
 
   const db = getDb();
 
-  // Load all users who have lanes
+  // Load all lanes with their per-lane threshold
   const allLanes = await db
     .select({
       laneId: lanes.id,
       origin: lanes.origin,
       destination: lanes.destination,
       equipment: lanes.equipment,
+      alertThresholdPct: lanes.alertThresholdPct,
       userId: lanes.userId,
     })
     .from(lanes);
@@ -169,16 +171,18 @@ export async function GET(req: Request) {
     return Response.json({ ok: true, message: "No lanes to process" });
   }
 
-  // Load user emails
+  // Load only opted-in users
   const userIds = [...new Set(allLanes.map((l) => l.userId))];
   const userRows = await db
-    .select({ id: users.id, email: users.email })
+    .select({ id: users.id, email: users.email, alertOptIn: users.alertOptIn })
     .from(users)
     .where(inArray(users.id, userIds));
 
   const userEmailMap = new Map(userRows.map((u) => [u.id, u.email]));
+  const optedInUserIds = new Set(userRows.filter((u) => u.alertOptIn).map((u) => u.id));
 
   const lanesWithUsers: LaneWithUser[] = allLanes
+    .filter((l) => optedInUserIds.has(l.userId))
     .map((l) => ({
       ...l,
       userEmail: userEmailMap.get(l.userId) ?? "",
@@ -225,8 +229,6 @@ export async function GET(req: Request) {
     { origin: string; destination: string; equipment: string; oldRate: number | null; newRate: number; deltaPct: number | null; insight: string }[]
   >();
 
-  const ALERT_THRESHOLD = 0.05;
-
   for (const lane of lanesWithUsers) {
     const key = `${lane.origin}||${lane.destination}||${lane.equipment}`;
     const estimate = rateCache.get(key);
@@ -241,7 +243,7 @@ export async function GET(req: Request) {
 
     if (oldRate !== null) {
       deltaPct = ((newRate - oldRate) / oldRate) * 100;
-      shouldAlert = Math.abs(deltaPct) > ALERT_THRESHOLD * 100;
+      shouldAlert = Math.abs(deltaPct) >= lane.alertThresholdPct;
     } else {
       // First snapshot — always send welcome brief
       shouldAlert = true;
@@ -284,7 +286,7 @@ export async function GET(req: Request) {
     const email = userEmailMap.get(userId);
     if (!email || alerts.length === 0) continue;
 
-    const hasMovements = alerts.some((a) => a.deltaPct !== null && Math.abs(a.deltaPct) > 5);
+    const hasMovements = alerts.some((a) => a.deltaPct !== null && a.deltaPct !== 0);
     const subject = hasMovements
       ? `⚡ Lane alert: ${alerts[0].origin} → ${alerts[0].destination} moved ${Math.abs(alerts[0].deltaPct ?? 0).toFixed(1)}%`
       : `Your weekly LaneBrief digest`;

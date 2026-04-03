@@ -1,0 +1,27 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1775160276866,
+      "tag": "0000_typical_gamma_corps",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1743638400000,
+      "tag": "0001_autonomous_fleet_registry",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1743724800000,
+      "tag": "0002_autonomous_beta_flag",
+      "breakpoints": true
+    }
+  ]
+}

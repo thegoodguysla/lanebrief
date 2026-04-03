@@ -229,7 +229,7 @@ export default function FreeReportPage() {
               Built for independent freight brokers
             </p>
             <blockquote className="text-lg sm:text-xl font-medium text-foreground max-w-lg mx-auto leading-relaxed">
-              &ldquo;Protect one load margin per month = $600+ saved. LaneBrief costs $199.
+              &ldquo;Protect one load margin per month = $600+ saved. LaneBrief starts at $199/mo.
               It pays for itself the first time you quote before a rate spike — not after.&rdquo;
             </blockquote>
             <p className="mt-4 text-sm text-muted-foreground">— Nick Taylor, Founder, LaneBrief</p>
