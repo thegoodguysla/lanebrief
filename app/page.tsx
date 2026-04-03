@@ -42,6 +42,47 @@ export default function LaneBriefLanding() {
   } | null>(null);
   const [bmError, setBmError] = useState<string | null>(null);
 
+  // Carrier Reliability Mini-Score state
+  const [csCarrier, setCsCarrier] = useState("");
+  const [csLane, setCsLane] = useState("");
+  const [csLoading, setCsLoading] = useState(false);
+  const [csResult, setCsResult] = useState<{
+    score: number;
+    grade: "A" | "B" | "C" | "D" | "F";
+    summary: string;
+    strengths: string[];
+    risks: string[];
+    disclaimer: string;
+  } | null>(null);
+  const [csError, setCsError] = useState<string | null>(null);
+
+  const handleCarrierScore = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!csCarrier || !csLane) return;
+    setCsLoading(true);
+    setCsResult(null);
+    setCsError(null);
+    try {
+      const res = await fetch("/api/carrier-score", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ carrier_name: csCarrier, lane: csLane }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        setCsError(err.error || "Something went wrong. Try again.");
+      } else {
+        const data = await res.json();
+        setCsResult(data);
+        sendGAEvent("event", "form_submit", { form_name: "carrier_reliability_score" });
+      }
+    } catch {
+      setCsError("Network error. Please try again.");
+    } finally {
+      setCsLoading(false);
+    }
+  };
+
   const handleBenchmark = async (e: React.FormEvent) => {
     e.preventDefault();
     const rate = parseFloat(bmRate);
@@ -109,6 +150,8 @@ export default function LaneBriefLanding() {
             <a href="#how-it-works" className="hover:text-foreground transition-colors">How it works</a>
             <a href="#sample" className="hover:text-foreground transition-colors">Sample report</a>
             <a href="#benchmarker" className="hover:text-foreground transition-colors">Rate check</a>
+            <a href="#carrier-score" className="hover:text-foreground transition-colors">Carrier score</a>
+            <a href="#av-intel" className="hover:text-foreground transition-colors">AV Intel</a>
             <a href="#pricing" className="hover:text-foreground transition-colors">Pricing</a>
           </nav>
           <a href="#get-started" className={cn(buttonVariants({ size: "sm" }), "bg-primary text-primary-foreground hover:bg-primary/90")}>
@@ -167,7 +210,7 @@ export default function LaneBriefLanding() {
           {/* Stat strip */}
           <div className="mt-16 grid grid-cols-3 gap-6 sm:gap-12 max-w-xl w-full" role="list" aria-label="Key statistics">
             {[
-              { label: "Analyst-grade briefs", value: "$199/mo" },
+              { label: "Analyst-grade briefs", value: "From $199/mo" },
               { label: "vs. DAT iQ pricing", value: "1/3 cost" },
               { label: "Forward rate window", value: "30 days" },
             ].map((s) => (
@@ -662,40 +705,266 @@ export default function LaneBriefLanding() {
 
         <Separator className="opacity-20" />
 
-        {/* ── Pricing ──────────────────────────────────────────────────── */}
-        <section id="pricing" aria-labelledby="pricing-heading" className="py-20 px-4">
+        {/* ── Carrier Reliability Mini-Score ───────────────────────────── */}
+        <section id="carrier-score" aria-labelledby="carrier-score-heading" className="py-20 px-4">
+          <div className="max-w-2xl mx-auto">
+            <Card className="bg-card border-border/40">
+              <CardHeader className="pb-2">
+                <Badge className="w-fit mb-3 bg-primary/20 text-primary border-primary/30 text-xs">AI-Estimated · Free</Badge>
+                <CardTitle>
+                  <h2 id="carrier-score-heading" className="text-3xl sm:text-4xl font-bold">
+                    Carrier Reliability Score
+                  </h2>
+                </CardTitle>
+                <p className="text-muted-foreground mt-2">
+                  Enter a carrier name and lane. Get an AI-synthesized 0–100 reliability score with strengths and risk flags in seconds.
+                </p>
+              </CardHeader>
+              <CardContent className="pt-4">
+                <form onSubmit={handleCarrierScore} className="space-y-4" aria-label="Carrier reliability scorer">
+                  <div className="grid sm:grid-cols-2 gap-3">
+                    <div className="space-y-1">
+                      <label htmlFor="cs-carrier" className="text-xs text-muted-foreground font-medium uppercase tracking-wide">
+                        Carrier Name
+                      </label>
+                      <Input
+                        id="cs-carrier"
+                        placeholder="e.g. Swift Transportation"
+                        value={csCarrier}
+                        onChange={(e) => setCsCarrier(e.target.value)}
+                        maxLength={100}
+                        required
+                        className="bg-background/60"
+                        aria-describedby="cs-carrier-hint"
+                      />
+                      <p id="cs-carrier-hint" className="text-xs text-muted-foreground/60">MC number or DBA name</p>
+                    </div>
+                    <div className="space-y-1">
+                      <label htmlFor="cs-lane" className="text-xs text-muted-foreground font-medium uppercase tracking-wide">
+                        Lane
+                      </label>
+                      <Input
+                        id="cs-lane"
+                        placeholder="e.g. Chicago, IL to Dallas, TX"
+                        value={csLane}
+                        onChange={(e) => setCsLane(e.target.value)}
+                        maxLength={200}
+                        required
+                        className="bg-background/60"
+                      />
+                    </div>
+                  </div>
+                  <Button
+                    type="submit"
+                    className="w-full bg-primary text-primary-foreground hover:bg-primary/90"
+                    disabled={csLoading || !csCarrier || !csLane}
+                    aria-busy={csLoading}
+                  >
+                    {csLoading ? "Scoring carrier…" : "Score This Carrier"}
+                  </Button>
+                </form>
+
+                {csError && (
+                  <div role="alert" className="mt-6 p-4 rounded-lg border border-destructive/40 bg-destructive/10 text-sm text-destructive">
+                    {csError}
+                  </div>
+                )}
+
+                {csResult && (
+                  <div role="region" aria-label="Carrier reliability result" className="mt-6 space-y-4">
+                    {/* Score + Grade */}
+                    <div className={cn(
+                      "p-5 rounded-lg border flex items-center gap-6",
+                      csResult.score >= 80 && "border-green-500/40 bg-green-500/10",
+                      csResult.score >= 60 && csResult.score < 80 && "border-yellow-500/40 bg-yellow-500/10",
+                      csResult.score < 60 && "border-destructive/40 bg-destructive/10",
+                    )}>
+                      <div className="shrink-0 text-center">
+                        <p className={cn(
+                          "text-5xl font-bold font-mono leading-none",
+                          csResult.score >= 80 && "text-green-400",
+                          csResult.score >= 60 && csResult.score < 80 && "text-yellow-400",
+                          csResult.score < 60 && "text-destructive",
+                        )}>
+                          {csResult.score}
+                        </p>
+                        <p className="text-xs text-muted-foreground mt-1">out of 100</p>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className={cn(
+                            "text-2xl font-bold",
+                            csResult.score >= 80 && "text-green-400",
+                            csResult.score >= 60 && csResult.score < 80 && "text-yellow-400",
+                            csResult.score < 60 && "text-destructive",
+                          )}>
+                            Grade {csResult.grade}
+                          </span>
+                        </div>
+                        <div className="bg-background/40 rounded-full h-2 overflow-hidden">
+                          <div
+                            className={cn(
+                              "h-full rounded-full transition-all",
+                              csResult.score >= 80 && "bg-green-500",
+                              csResult.score >= 60 && csResult.score < 80 && "bg-yellow-500",
+                              csResult.score < 60 && "bg-destructive",
+                            )}
+                            style={{ width: `${csResult.score}%` }}
+                            aria-hidden="true"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Summary */}
+                    <p className="text-sm text-muted-foreground leading-relaxed">{csResult.summary}</p>
+
+                    {/* Strengths + Risks */}
+                    <div className="grid sm:grid-cols-2 gap-3">
+                      <div className="rounded-lg border border-green-500/20 bg-green-500/5 p-4">
+                        <p className="text-xs font-semibold text-green-400 uppercase tracking-wide mb-2">Strengths</p>
+                        <ul className="space-y-1.5">
+                          {csResult.strengths.map((s, i) => (
+                            <li key={i} className="flex items-start gap-2 text-sm text-muted-foreground">
+                              <span className="text-green-400 shrink-0 mt-0.5" aria-hidden="true">✓</span>
+                              {s}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                      <div className="rounded-lg border border-yellow-500/20 bg-yellow-500/5 p-4">
+                        <p className="text-xs font-semibold text-yellow-400 uppercase tracking-wide mb-2">Risk Flags</p>
+                        <ul className="space-y-1.5">
+                          {csResult.risks.map((r, i) => (
+                            <li key={i} className="flex items-start gap-2 text-sm text-muted-foreground">
+                              <span className="text-yellow-400 shrink-0 mt-0.5" aria-hidden="true">!</span>
+                              {r}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
+
+                    <p className="text-xs text-muted-foreground text-center">{csResult.disclaimer}</p>
+
+                    <div className="text-center pt-2">
+                      <p className="text-sm text-muted-foreground mb-3">Want full carrier vetting + lane health in your weekly brief?</p>
+                      <a href="#get-started" className={cn(buttonVariants({ size: "sm" }), "bg-primary text-primary-foreground hover:bg-primary/90")}>
+                        Get your free lane brief →
+                      </a>
+                    </div>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        </section>
+
+        <Separator className="opacity-20" />
+
+        {/* ── Autonomous Fleet Intel ────────────────────────────────────── */}
+        <section id="av-intel" aria-labelledby="av-intel-heading" className="py-20 px-4 bg-card/20">
           <div className="max-w-4xl mx-auto">
-            <div className="text-center mb-12">
-              <h2 id="pricing-heading" className="text-3xl sm:text-4xl font-bold">Simple, transparent pricing.</h2>
-              <p className="mt-4 text-muted-foreground max-w-lg mx-auto">
-                One plan. No annual lock-in. Cancel any time.
-                If it doesn&apos;t improve how you price or plan, it&apos;s not worth your money.
+            <div className="text-center mb-10">
+              <Badge className="mb-4 bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 text-xs">
+                Beta · Navigator &amp; Command plans
+              </Badge>
+              <h2 id="av-intel-heading" className="text-3xl sm:text-4xl font-bold">
+                Autonomous Fleet Intel
+              </h2>
+              <p className="mt-4 text-muted-foreground max-w-2xl mx-auto">
+                The freight industry is shifting. Know which of your lanes have autonomous carrier coverage — and what it means for capacity, rates, and your competitive position.
               </p>
             </div>
 
-            <div className="grid sm:grid-cols-2 gap-6 items-center max-w-3xl mx-auto">
-              {/* LaneBrief plan */}
-              <Card className="bg-primary/10 border-primary/40 relative overflow-hidden">
-                <div className="absolute top-0 right-0 m-3">
-                  <Badge className="bg-primary text-primary-foreground text-xs">Recommended</Badge>
-                </div>
+            <div className="grid sm:grid-cols-3 gap-6 mb-8">
+              {[
+                {
+                  badge: "AV: Covered",
+                  badgeClass: "border-emerald-400/60 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400",
+                  dotClass: "bg-emerald-500",
+                  title: "Full AV Coverage",
+                  desc: "Fully certified autonomous carriers operating on this lane. Expect evolving capacity dynamics and new rate floors as AV adoption scales.",
+                },
+                {
+                  badge: "AV: Partial",
+                  badgeClass: "border-amber-400/60 bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400",
+                  dotClass: "bg-amber-500",
+                  title: "Provisional Certification",
+                  desc: "AV carriers with lane-segment approval. Coverage is active but limited — watch for capacity shifts over the next 12–24 months.",
+                },
+                {
+                  badge: "AV: None",
+                  badgeClass: "border-border/60 bg-muted/20 text-muted-foreground",
+                  dotClass: "bg-muted-foreground/50",
+                  title: "No AV Activity",
+                  desc: "No autonomous carrier operations on this lane. Traditional capacity dynamics apply — no near-term disruption risk.",
+                },
+              ].map((item) => (
+                <Card key={item.title} className="bg-card border-border/50">
+                  <CardHeader className="pb-3">
+                    <span className={cn(
+                      "inline-flex items-center gap-1.5 w-fit rounded-full border px-2.5 py-1 text-xs font-medium mb-3",
+                      item.badgeClass
+                    )}>
+                      <span className={cn("h-1.5 w-1.5 rounded-full", item.dotClass)} aria-hidden="true" />
+                      {item.badge}
+                    </span>
+                    <CardTitle className="text-base">{item.title}</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <p className="text-sm text-muted-foreground leading-relaxed">{item.desc}</p>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+
+            <div className="max-w-2xl mx-auto rounded-lg border border-border/40 bg-card/60 p-6 text-center">
+              <p className="text-sm font-medium mb-1">Why this matters for independent brokers</p>
+              <p className="text-sm text-muted-foreground">
+                AV penetration changes lane-level supply. Knowing your corridors&apos; AV status gives you a 12–18 month leading edge on capacity shifts — before they hit DAT.
+              </p>
+              <a href="#get-started" className={cn(buttonVariants({ size: "sm", variant: "outline" }), "mt-4 border-primary/40 text-primary hover:bg-primary/10")}>
+                Get early access →
+              </a>
+            </div>
+          </div>
+        </section>
+
+        <Separator className="opacity-20" />
+
+        {/* ── Pricing ──────────────────────────────────────────────────── */}
+        <section id="pricing" aria-labelledby="pricing-heading" className="py-20 px-4">
+          <div className="max-w-5xl mx-auto">
+            <div className="text-center mb-12">
+              <h2 id="pricing-heading" className="text-3xl sm:text-4xl font-bold">Simple, transparent pricing.</h2>
+              <p className="mt-4 text-muted-foreground max-w-lg mx-auto">
+                Three plans. No hidden fees. Cancel any time.
+                Save 2 months with annual billing.
+              </p>
+            </div>
+
+            <div className="grid sm:grid-cols-3 gap-6 items-start max-w-4xl mx-auto mb-12">
+              {/* Scout */}
+              <Card className="border-border/40">
                 <CardHeader>
-                  <CardTitle className="text-2xl">LaneBrief</CardTitle>
+                  <CardTitle className="text-xl">Scout</CardTitle>
+                  <p className="text-sm text-muted-foreground">3 lanes</p>
                   <div className="flex items-end gap-2 mt-2">
-                    <span className="text-5xl font-bold text-primary">$199</span>
-                    <span className="text-muted-foreground mb-1">/month</span>
+                    <span className="text-4xl font-bold text-foreground">$199</span>
+                    <span className="text-muted-foreground mb-1">/mo</span>
                   </div>
+                  <p className="text-xs text-muted-foreground">or $1,990/yr (2 months free)</p>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <ul className="space-y-3 text-sm" aria-label="What's included">
+                  <ul className="space-y-3 text-sm" aria-label="Scout features">
                     {[
-                      "Monthly intelligence brief (your top 3 lanes)",
-                      "30-day rate forecast with confidence ranges",
+                      "Monthly intelligence brief — 3 lanes",
+                      "30-day rate forecast",
                       "Capacity tightness indicators",
-                      "Actionable pricing recommendations",
-                      "Capacity alert emails (weekly)",
-                      "Direct analyst access via email",
-                      "Cancel anytime — no annual commitment",
+                      "Actionable pricing recs",
+                      "Weekly capacity alerts",
+                      "Analyst access via email",
                     ].map((item) => (
                       <li key={item} className="flex items-start gap-2">
                         <span className="text-primary mt-0.5 shrink-0" aria-hidden="true">✓</span>
@@ -703,55 +972,141 @@ export default function LaneBriefLanding() {
                       </li>
                     ))}
                   </ul>
-                  <a href="#get-started" className={cn(buttonVariants(), "w-full bg-primary text-primary-foreground hover:bg-primary/90 mt-4 justify-center")}>
-                    Start Free with a Sample Brief
+                  <a href="https://buy.stripe.com/cNicMY58JckwaGl03s1Nu06" className={cn(buttonVariants({ variant: "outline" }), "w-full mt-4 justify-center")}>
+                    Get Scout — $199/mo
                   </a>
-                  <p className="text-xs text-center text-muted-foreground">No credit card required to start</p>
+                  <a href="https://buy.stripe.com/dRmcMY7gRbgs7u9aI61Nu07" className="block text-xs text-center text-primary underline underline-offset-2 hover:text-primary/80 transition-colors mt-2">
+                    Save $398/yr with annual billing
+                  </a>
                 </CardContent>
               </Card>
 
-              {/* Competitor comparison */}
-              <div className="space-y-4">
-                <p className="text-sm text-muted-foreground font-medium uppercase tracking-widest mb-6">Compare</p>
-                {[
-                  {
-                    name: "DAT Basic",
-                    price: "$54/mo",
-                    desc: "Raw spot rates. No forecasts. No synthesis. You do the analysis.",
-                    bad: true,
-                  },
-                  {
-                    name: "DAT iQ / Enterprise",
-                    price: "$300–$3,600+/yr",
-                    desc: "Full analytics suite. Built for large 3PLs with dedicated data teams.",
-                    bad: true,
-                  },
-                  {
-                    name: "LaneBrief",
-                    price: "$199/mo",
-                    desc: "Analyst-grade synthesis, lane-specific forecasts, actionable recs. Built for you.",
-                    bad: false,
-                  },
-                ].map((item) => (
-                  <Card
-                    key={item.name}
-                    className={`border-border/40 ${item.bad ? "opacity-60" : "border-primary/40 bg-primary/5"}`}
-                  >
-                    <CardContent className="p-4 flex items-start gap-3">
-                      <span className={`text-lg mt-0.5 ${item.bad ? "text-muted-foreground" : "text-primary"}`} aria-hidden="true">
-                        {item.bad ? "✗" : "✓"}
-                      </span>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <span className="font-semibold text-sm">{item.name}</span>
-                          <span className="text-xs text-muted-foreground font-mono">{item.price}</span>
-                        </div>
-                        <p className="text-xs text-muted-foreground mt-1">{item.desc}</p>
+              {/* Navigator — recommended */}
+              <Card className="bg-primary/10 border-primary/40 relative overflow-hidden">
+                <div className="absolute top-0 right-0 m-3">
+                  <Badge className="bg-primary text-primary-foreground text-xs">Most Popular</Badge>
+                </div>
+                <CardHeader>
+                  <CardTitle className="text-xl">Navigator</CardTitle>
+                  <p className="text-sm text-muted-foreground">5 lanes</p>
+                  <div className="flex items-end gap-2 mt-2">
+                    <span className="text-4xl font-bold text-primary">$349</span>
+                    <span className="text-muted-foreground mb-1">/mo</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">or $3,490/yr (2 months free)</p>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <ul className="space-y-3 text-sm" aria-label="Navigator features">
+                    {[
+                      "Monthly intelligence brief — 5 lanes",
+                      "30-day rate forecast with confidence ranges",
+                      "Capacity tightness indicators",
+                      "Actionable pricing recs",
+                      "Rate Alerts (weekly capacity digest)",
+                      "Analyst access via email",
+                      "Autonomous Fleet Intel (beta)",
+                    ].map((item) => (
+                      <li key={item} className="flex items-start gap-2">
+                        <span className="text-primary mt-0.5 shrink-0" aria-hidden="true">✓</span>
+                        <span className="text-muted-foreground">{item}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  <a href="https://buy.stripe.com/9B614g8kV4S4eWB4jI1Nu08" className={cn(buttonVariants(), "w-full bg-primary text-primary-foreground hover:bg-primary/90 mt-4 justify-center")}>
+                    Get Navigator — $349/mo
+                  </a>
+                  <a href="https://buy.stripe.com/6oUcMY6cN0BO3dT17w1Nu09" className="block text-xs text-center text-primary underline underline-offset-2 hover:text-primary/80 transition-colors mt-2">
+                    Save $698/yr with annual billing
+                  </a>
+                  <a href="#get-started" className="block text-xs text-center text-muted-foreground underline underline-offset-2 hover:text-foreground transition-colors mt-1">
+                    Or try a free sample brief first
+                  </a>
+                </CardContent>
+              </Card>
+
+              {/* Command */}
+              <Card className="border-border/40">
+                <CardHeader>
+                  <CardTitle className="text-xl">Command</CardTitle>
+                  <p className="text-sm text-muted-foreground">10 lanes</p>
+                  <div className="flex items-end gap-2 mt-2">
+                    <span className="text-4xl font-bold text-foreground">$599</span>
+                    <span className="text-muted-foreground mb-1">/mo</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground">or $5,990/yr (2 months free)</p>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <ul className="space-y-3 text-sm" aria-label="Command features">
+                    {[
+                      "Monthly intelligence brief — 10 lanes",
+                      "30-day rate forecast with confidence ranges",
+                      "Capacity tightness indicators",
+                      "Actionable pricing recs",
+                      "Rate Alerts (weekly capacity digest)",
+                      "Priority analyst access",
+                      "Autonomous Fleet Intel (beta)",
+                    ].map((item) => (
+                      <li key={item} className="flex items-start gap-2">
+                        <span className="text-primary mt-0.5 shrink-0" aria-hidden="true">✓</span>
+                        <span className="text-muted-foreground">{item}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  <a href="https://buy.stripe.com/eVq4gs1Wx5W8cOt7vU1Nu0a" className={cn(buttonVariants({ variant: "outline" }), "w-full mt-4 justify-center")}>
+                    Get Command — $599/mo
+                  </a>
+                  <a href="https://buy.stripe.com/8x2fZaeJjesEdSx4jI1Nu0b" className="block text-xs text-center text-primary underline underline-offset-2 hover:text-primary/80 transition-colors mt-2">
+                    Save $1,198/yr with annual billing
+                  </a>
+                </CardContent>
+              </Card>
+            </div>
+
+            <p className="text-center text-sm text-muted-foreground mb-12">
+              Need more than 10 lanes? <a href="mailto:nick@lanebrief.com" className="text-primary underline underline-offset-2 hover:text-primary/80 transition-colors">Contact our sales team</a> for a custom quote.
+            </p>
+
+            {/* Competitor comparison */}
+            <div className="max-w-2xl mx-auto space-y-4">
+              <p className="text-sm text-muted-foreground font-medium uppercase tracking-widest mb-6 text-center">How we compare</p>
+              {[
+                {
+                  name: "DAT Basic",
+                  price: "$54/mo",
+                  desc: "Raw spot rates. No forecasts. No synthesis. You do the analysis.",
+                  bad: true,
+                },
+                {
+                  name: "DAT iQ / Enterprise",
+                  price: "$300–$3,600+/yr",
+                  desc: "Full analytics suite. Built for large 3PLs with dedicated data teams.",
+                  bad: true,
+                },
+                {
+                  name: "LaneBrief",
+                  price: "from $199/mo",
+                  desc: "Analyst-grade synthesis, lane-specific forecasts, actionable recs. Built for you.",
+                  bad: false,
+                },
+              ].map((item) => (
+                <Card
+                  key={item.name}
+                  className={`border-border/40 ${item.bad ? "opacity-60" : "border-primary/40 bg-primary/5"}`}
+                >
+                  <CardContent className="p-4 flex items-start gap-3">
+                    <span className={`text-lg mt-0.5 ${item.bad ? "text-muted-foreground" : "text-primary"}`} aria-hidden="true">
+                      {item.bad ? "✗" : "✓"}
+                    </span>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold text-sm">{item.name}</span>
+                        <span className="text-xs text-muted-foreground font-mono">{item.price}</span>
                       </div>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
+                      <p className="text-xs text-muted-foreground mt-1">{item.desc}</p>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
             </div>
           </div>
         </section>

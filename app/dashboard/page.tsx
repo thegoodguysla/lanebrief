@@ -1,11 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useState, useCallback } from "react";
+import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { useUser, UserButton } from "@clerk/nextjs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { AutonomousCoverageBadge } from "@/components/autonomous-coverage-badge";
+import { AutonomousCarrierCard, type AutonomousCarrierData } from "@/components/autonomous-carrier-card";
+import { AutonomousCorridorMap } from "@/components/autonomous-corridor-map";
 import Link from "next/link";
 
 type Lane = {
@@ -13,6 +16,14 @@ type Lane = {
   origin: string;
   destination: string;
   equipment: string;
+  alertThresholdPct: number;
+};
+
+type AvCoverageData = {
+  coverage: "YES" | "NO" | "PARTIAL";
+  carriers: Array<AutonomousCarrierData & {
+    corridors?: Array<{ originRegion: string; destRegion: string; highwayId: string | null; isCertified: boolean }>;
+  }>;
 };
 
 type Brief = {
@@ -27,6 +38,8 @@ type Brief = {
 export default function DashboardPage() {
   const { user, isLoaded } = useUser();
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const [lanes, setLanes] = useState<Lane[]>([]);
   const [briefs, setBriefs] = useState<Brief[]>([]);
   const [origin, setOrigin] = useState("");
@@ -37,32 +50,67 @@ export default function DashboardPage() {
   const [selectedBrief, setSelectedBrief] = useState<Brief | null>(null);
   const [error, setError] = useState("");
   const [initialized, setInitialized] = useState(false);
+  const [alertOptIn, setAlertOptIn] = useState(false);
+  const [autonomousBeta, setAutonomousBeta] = useState(false);
+  const [savingOptIn, setSavingOptIn] = useState(false);
+  const [savingThresholdFor, setSavingThresholdFor] = useState<string | null>(null);
+  const [avCoverage, setAvCoverage] = useState<Record<string, AvCoverageData | "loading">>({});
+  const [expandedAvLane, setExpandedAvLane] = useState<string | null>(null);
+  const avOnly = searchParams.get("avOnly") === "1";
+
+  const fetchAvCoverage = useCallback((laneIds: string[]) => {
+    for (const laneId of laneIds) {
+      setAvCoverage((prev) => ({ ...prev, [laneId]: "loading" }));
+      fetch(`/api/lanes/${laneId}/autonomous-coverage`)
+        .then((r) => r.json())
+        .then((data) => {
+          setAvCoverage((prev) => ({
+            ...prev,
+            [laneId]: { coverage: data.coverage, carriers: data.carriers ?? [] },
+          }));
+        })
+        .catch(() => {
+          setAvCoverage((prev) => ({ ...prev, [laneId]: { coverage: "NO", carriers: [] } }));
+        });
+    }
+  }, []);
 
   useEffect(() => {
     if (!isLoaded || !user || initialized) return;
 
     fetch("/api/user/sync", { method: "POST" })
-      .then(() => Promise.all([
-        fetch("/api/lanes").then((r) => r.json()),
-        fetch("/api/briefs").then((r) => r.json()),
-      ]))
+      .then((r) => r.json())
+      .then((userData) => {
+        setAlertOptIn(userData.user?.alertOptIn ?? false);
+        setAutonomousBeta(userData.user?.autonomousBeta ?? false);
+        return Promise.all([
+          fetch("/api/lanes").then((r) => r.json()),
+          fetch("/api/briefs").then((r) => r.json()),
+        ]);
+      })
       .then(([lanesData, briefsData]) => {
         if (lanesData.lanes?.length === 0) {
           router.replace("/onboarding");
           return;
         }
-        setLanes(lanesData.lanes ?? []);
+        const loadedLanes: Lane[] = lanesData.lanes ?? [];
+        setLanes(loadedLanes);
         setBriefs(briefsData.briefs ?? []);
         setInitialized(true);
+        fetchAvCoverage(loadedLanes.map((l) => l.id));
       })
       .catch(() => setInitialized(true));
-  }, [isLoaded, user, initialized, router]);
+  }, [isLoaded, user, initialized, router, fetchAvCoverage]);
 
   async function loadLanes() {
     const res = await fetch("/api/lanes");
     if (res.ok) {
       const data = await res.json();
-      setLanes(data.lanes);
+      const loadedLanes: Lane[] = data.lanes ?? [];
+      setLanes(loadedLanes);
+      // Fetch coverage for any lanes not yet loaded
+      const missing = loadedLanes.map((l) => l.id).filter((id) => !(id in avCoverage));
+      if (missing.length > 0) fetchAvCoverage(missing);
     }
   }
 
@@ -126,10 +174,60 @@ export default function DashboardPage() {
     }
   }
 
+  async function toggleAlertOptIn() {
+    setSavingOptIn(true);
+    const next = !alertOptIn;
+    try {
+      const res = await fetch("/api/user/alert-opt-in", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ alertOptIn: next }),
+      });
+      if (res.ok) setAlertOptIn(next);
+    } finally {
+      setSavingOptIn(false);
+    }
+  }
+
+  async function saveThreshold(laneId: string, pct: number) {
+    setSavingThresholdFor(laneId);
+    try {
+      const res = await fetch(`/api/lanes/${laneId}/alert`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ alertThresholdPct: pct }),
+      });
+      if (res.ok) {
+        setLanes((prev) =>
+          prev.map((l) => (l.id === laneId ? { ...l, alertThresholdPct: pct } : l))
+        );
+      }
+    } finally {
+      setSavingThresholdFor(null);
+    }
+  }
+
+  function toggleAvFilter() {
+    const params = new URLSearchParams(searchParams.toString());
+    if (avOnly) {
+      params.delete("avOnly");
+    } else {
+      params.set("avOnly", "1");
+    }
+    router.replace(`${pathname}?${params.toString()}`);
+  }
+
   // Get the most recent brief for a given lane
   function latestBriefForLane(laneId: string): Brief | undefined {
     return briefs.find((b) => b.laneId === laneId);
   }
+
+  const displayedLanes = avOnly
+    ? lanes.filter((l) => {
+        const cov = avCoverage[l.id];
+        return cov !== "loading" && cov?.coverage !== "NO" && cov != null;
+      })
+    : lanes;
 
   if (!isLoaded || !initialized) {
     return (
@@ -153,25 +251,64 @@ export default function DashboardPage() {
 
       <main className="max-w-5xl mx-auto px-4 py-8 space-y-10">
         {/* Header */}
-        <div>
-          <h1 className="text-2xl font-semibold">
-            {user?.firstName ? `${user.firstName}'s Lane Dashboard` : "Your Lane Dashboard"}
-          </h1>
-          <p className="text-muted-foreground mt-1">
-            Track up to 5 lanes. Generate AI-powered freight intelligence briefs anytime.
-          </p>
+        <div className="flex items-start justify-between gap-4 flex-wrap">
+          <div>
+            <h1 className="text-2xl font-semibold">
+              {user?.firstName ? `${user.firstName}'s Lane Dashboard` : "Your Lane Dashboard"}
+            </h1>
+            <p className="text-muted-foreground mt-1">
+              Track up to 5 lanes. Generate AI-powered freight intelligence briefs anytime.
+            </p>
+          </div>
+          <div className="flex items-center gap-3 rounded-lg border border-border px-4 py-3 shrink-0">
+            <div>
+              <p className="text-sm font-medium">Weekly Rate Alerts</p>
+              <p className="text-xs text-muted-foreground">Email digest when lanes hit threshold</p>
+            </div>
+            <button
+              onClick={toggleAlertOptIn}
+              disabled={savingOptIn}
+              aria-pressed={alertOptIn}
+              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring ${alertOptIn ? "bg-primary" : "bg-muted"} disabled:opacity-50`}
+            >
+              <span
+                className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-lg transition-transform ${alertOptIn ? "translate-x-5" : "translate-x-0"}`}
+              />
+            </button>
+          </div>
         </div>
 
         {/* Lane cards */}
         <section className="space-y-4">
-          <h2 className="text-sm font-medium uppercase tracking-wider text-muted-foreground">
-            My Lanes ({lanes.length}/5)
-          </h2>
+          <div className="flex items-center justify-between gap-4 flex-wrap">
+            <h2 className="text-sm font-medium uppercase tracking-wider text-muted-foreground">
+              My Lanes ({lanes.length}/5)
+            </h2>
+            <button
+              type="button"
+              onClick={toggleAvFilter}
+              aria-pressed={avOnly}
+              className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+                avOnly
+                  ? "border-emerald-400/60 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400"
+                  : "border-border text-muted-foreground hover:border-emerald-400/40 hover:text-foreground"
+              }`}
+            >
+              <span className={`h-2 w-2 rounded-full ${avOnly ? "bg-emerald-500" : "bg-muted-foreground/40"}`} />
+              Autonomous coverage only
+            </button>
+          </div>
+
+          {avOnly && displayedLanes.length === 0 && (
+            <p className="text-sm text-muted-foreground">No lanes with autonomous coverage yet. Coverage data updates daily.</p>
+          )}
 
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {lanes.map((lane) => {
+            {displayedLanes.map((lane) => {
               const brief = latestBriefForLane(lane.id);
               const isGenerating = generatingFor === lane.id;
+              const avData = avCoverage[lane.id];
+              const avExpanded = expandedAvLane === lane.id;
               return (
                 <div
                   key={lane.id}
@@ -179,13 +316,19 @@ export default function DashboardPage() {
                 >
                   {/* Lane header */}
                   <div className="flex items-start justify-between gap-2">
-                    <div>
+                    <div className="space-y-1">
                       <p className="font-medium text-sm leading-snug">
                         {lane.origin} → {lane.destination}
                       </p>
-                      <Badge variant="outline" className="mt-1 text-xs capitalize">
-                        {lane.equipment.replace("_", " ")}
-                      </Badge>
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <Badge variant="outline" className="text-xs capitalize">
+                          {lane.equipment.replace("_", " ")}
+                        </Badge>
+                        <AutonomousCoverageBadge
+                          coverage={avData === "loading" ? undefined : avData?.coverage}
+                          loading={avData === "loading"}
+                        />
+                      </div>
                     </div>
                     <button
                       onClick={() => removeLane(lane.id)}
@@ -194,6 +337,30 @@ export default function DashboardPage() {
                       Remove
                     </button>
                   </div>
+
+                  {/* AV carrier cards (expandable) */}
+                  {avData !== "loading" && avData && avData.coverage !== "NO" && avData.carriers.length > 0 && (
+                    <div className="space-y-2">
+                      <button
+                        type="button"
+                        onClick={() => setExpandedAvLane(avExpanded ? null : lane.id)}
+                        className="text-xs text-emerald-700 hover:underline dark:text-emerald-400"
+                      >
+                        {avExpanded ? "Hide" : "View"} {avData.carriers.length} autonomous carrier{avData.carriers.length > 1 ? "s" : ""}
+                      </button>
+                      {avExpanded && (
+                        <div className="space-y-2">
+                          {avData.carriers.map((carrier) => (
+                            <AutonomousCarrierCard
+                              key={carrier.id}
+                              carrier={carrier}
+                              corridors={carrier.corridors}
+                            />
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   {/* Brief preview */}
                   {brief ? (
@@ -231,6 +398,36 @@ export default function DashboardPage() {
                     </div>
                   ) : (
                     <p className="text-xs text-muted-foreground">No brief yet for this lane.</p>
+                  )}
+
+                  {/* Alert threshold */}
+                  {alertOptIn && (
+                    <div className="space-y-1 pt-1">
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs text-muted-foreground">Alert threshold</label>
+                        <span className="text-xs font-medium">{lane.alertThresholdPct}%</span>
+                      </div>
+                      <input
+                        type="range"
+                        min={1}
+                        max={50}
+                        step={1}
+                        value={lane.alertThresholdPct}
+                        onChange={(e) =>
+                          setLanes((prev) =>
+                            prev.map((l) =>
+                              l.id === lane.id
+                                ? { ...l, alertThresholdPct: Number(e.target.value) }
+                                : l
+                            )
+                          )
+                        }
+                        onMouseUp={(e) => saveThreshold(lane.id, Number((e.target as HTMLInputElement).value))}
+                        onTouchEnd={(e) => saveThreshold(lane.id, Number((e.target as HTMLInputElement).value))}
+                        disabled={savingThresholdFor === lane.id}
+                        className="w-full accent-primary"
+                      />
+                    </div>
                   )}
 
                   <Button
@@ -337,6 +534,20 @@ export default function DashboardPage() {
                 </button>
               ))}
             </div>
+          </section>
+        )}
+        {/* Autonomous corridor coverage map (beta) */}
+        {autonomousBeta && (
+          <section className="space-y-3">
+            <div>
+              <h2 className="text-sm font-medium uppercase tracking-wider text-muted-foreground">
+                Autonomous Corridor Coverage Map
+              </h2>
+              <p className="text-xs text-muted-foreground mt-1">
+                Sun Belt corridors served by Aurora, Gatik, and Kodiak — beta access
+              </p>
+            </div>
+            <AutonomousCorridorMap />
           </section>
         )}
       </main>
