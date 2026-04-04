@@ -1,5 +1,18 @@
 import { pgTable, text, integer, timestamp, real, unique, boolean, index } from "drizzle-orm/pg-core";
 
+export const demoBookings = pgTable("demo_bookings", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  email: text("email").notNull(),
+  utmSource: text("utm_source"),
+  utmCampaign: text("utm_campaign"),
+  bookedAt: timestamp("booked_at").notNull().defaultNow(),
+  reminderSentAt: timestamp("reminder_sent_at"),
+}, (t) => [
+  index("demo_bookings_email_idx").on(t.email),
+  index("demo_bookings_booked_at_idx").on(t.bookedAt),
+]);
+
 export const users = pgTable("users", {
   id: text("id").primaryKey(),
   clerkId: text("clerk_id").notNull().unique(),
@@ -125,3 +138,5 @@ export type AutonomousFleetProfile = typeof autonomousFleetProfiles.$inferSelect
 export type NewAutonomousFleetProfile = typeof autonomousFleetProfiles.$inferInsert;
 export type AutonomousCorridorCoverage = typeof autonomousCorridorCoverage.$inferSelect;
 export type NewAutonomousCorridorCoverage = typeof autonomousCorridorCoverage.$inferInsert;
+export type DemoBooking = typeof demoBookings.$inferSelect;
+export type NewDemoBooking = typeof demoBookings.$inferInsert;
