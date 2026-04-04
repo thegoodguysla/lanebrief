@@ -11,6 +11,27 @@ import { AutonomousCarrierCard, type AutonomousCarrierData } from "@/components/
 import { AutonomousCorridorMap } from "@/components/autonomous-corridor-map";
 import Link from "next/link";
 
+// Detect if a lane crosses the US-MX or US-CA border for tariff impact flagging
+const MX_INDICATORS = [
+  "mexico", " mx", ",mx", "monterrey", "guadalajara", "cdmx", "mexico city",
+  "tijuana", "juarez", "ciudad juarez", "nuevo laredo", "reynosa", "matamoros",
+  "nogales", "mexicali", "saltillo", "hermosillo", "chihuahua", "torreon",
+];
+const CA_INDICATORS = [
+  "canada", "ontario", "quebec", "british columbia", "alberta", "manitoba",
+  "saskatchewan", "nova scotia", "new brunswick", "prince edward island", "newfoundland",
+  " on,", " qc,", " ab,", " mb,", " sk,", " ns,", " nb,", " pe,", " nl,",
+  "toronto", "montreal", "vancouver", "calgary", "edmonton", "ottawa", "winnipeg",
+  "halifax", "hamilton", "london, on", "kitchener", "windsor, on",
+];
+
+function isTariffImpactedLane(lane: { origin: string; destination: string }): "MX" | "CA" | null {
+  const text = `${lane.origin} ${lane.destination}`.toLowerCase();
+  if (MX_INDICATORS.some((kw) => text.includes(kw))) return "MX";
+  if (CA_INDICATORS.some((kw) => text.includes(kw))) return "CA";
+  return null;
+}
+
 type Lane = {
   id: string;
   origin: string;
@@ -57,6 +78,8 @@ export default function DashboardPage() {
   const [avCoverage, setAvCoverage] = useState<Record<string, AvCoverageData | "loading">>({});
   const [expandedAvLane, setExpandedAvLane] = useState<string | null>(null);
   const avOnly = searchParams.get("avOnly") === "1";
+  const isNewUser = searchParams.get("newUser") === "1";
+  const [showGettingStarted, setShowGettingStarted] = useState(isNewUser);
 
   const fetchAvCoverage = useCallback((laneIds: string[]) => {
     for (const laneId of laneIds) {
@@ -250,6 +273,35 @@ export default function DashboardPage() {
       </nav>
 
       <main className="max-w-5xl mx-auto px-4 py-8 space-y-10">
+        {/* Getting started callout — shown on first login after onboarding */}
+        {showGettingStarted && (
+          <div className="rounded-lg border border-primary/30 bg-primary/5 px-5 py-4 flex items-start justify-between gap-4">
+            <div className="space-y-2">
+              <p className="font-semibold text-sm">Welcome to LaneBrief — here's what you can do</p>
+              <ul className="space-y-1">
+                {[
+                  "Generate a brief anytime — hit the button on any lane card",
+                  "Add up to 5 lanes — use the form below your cards",
+                  "Enable weekly alerts — toggle in the top-right to get Monday rate digests",
+                  "Download a shipper pitch PDF — link appears under each brief",
+                ].map((tip) => (
+                  <li key={tip} className="flex items-start gap-2">
+                    <span className="text-primary text-xs mt-0.5 shrink-0">→</span>
+                    <span className="text-xs text-muted-foreground">{tip}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <button
+              onClick={() => setShowGettingStarted(false)}
+              className="text-xs text-muted-foreground hover:text-foreground shrink-0 transition-colors"
+              aria-label="Dismiss"
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
+
         {/* Header */}
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div>
@@ -309,6 +361,7 @@ export default function DashboardPage() {
               const isGenerating = generatingFor === lane.id;
               const avData = avCoverage[lane.id];
               const avExpanded = expandedAvLane === lane.id;
+              const tariffFlag = isTariffImpactedLane(lane);
               return (
                 <div
                   key={lane.id}
@@ -324,6 +377,14 @@ export default function DashboardPage() {
                         <Badge variant="outline" className="text-xs capitalize">
                           {lane.equipment.replace("_", " ")}
                         </Badge>
+                        {tariffFlag && (
+                          <span
+                            title={`Tariff-impacted lane — rates volatile +15-25% (April 2026)`}
+                            className="inline-flex items-center gap-1 rounded-full border border-amber-400/60 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-950/30 dark:text-amber-400 dark:border-amber-500/40 cursor-help"
+                          >
+                            ⚠ US-{tariffFlag} tariff risk
+                          </span>
+                        )}
                         <AutonomousCoverageBadge
                           coverage={avData === "loading" ? undefined : avData?.coverage}
                           loading={avData === "loading"}
