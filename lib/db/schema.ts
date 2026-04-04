@@ -76,6 +76,13 @@ export const autonomousFleetProfiles = pgTable("autonomous_fleet_profiles", {
   driverlessMilesPerIncident: real("driverless_miles_per_incident"),
   activeTruckCount: integer("active_truck_count"),
   lastSyncedAt: timestamp("last_synced_at"),
+  // ADS qualification fields
+  adsProvider: text("ads_provider"),            // e.g. 'Aurora', 'Waymo', 'Kodiak', 'Gatik'
+  adsSystemVersion: text("ads_system_version"), // software/firmware version string
+  saeMaxLevel: integer("sae_max_level"),        // highest SAE automation level certified (2-5)
+  hasHumanFallback: boolean("has_human_fallback").default(true), // whether human operator fallback is available
+  telemetryApiProvider: text("telemetry_api_provider"), // e.g. 'samsara', 'geotab', 'platform_science'
+  telemetryApiEndpoint: text("telemetry_api_endpoint"), // direct ADS status feed URL if available
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
@@ -89,10 +96,19 @@ export const autonomousCorridorCoverage = pgTable("autonomous_corridor_coverage"
   isCertified: boolean("is_certified").notNull().default(false),
   maxDailyLoads: integer("max_daily_loads"),
   coverageStartedAt: timestamp("coverage_started_at"),
+  // ODD (Operational Design Domain) fields
+  saeLevel: integer("sae_level"),                  // SAE automation level for this corridor (2-5)
+  weatherConditions: text("weather_conditions").default("clear_only"), // 'clear_only' | 'rain_ok' | 'all_weather'
+  operatingHours: text("operating_hours").default("daytime_only"),     // 'daytime_only' | 'extended' | '24_7'
+  minSpeedMph: integer("min_speed_mph"),            // minimum speed for ADS engagement
+  maxSpeedMph: integer("max_speed_mph"),            // maximum speed for ADS engagement (typically 65)
+  roadTypes: text("road_types").default("interstate_only"), // 'interstate_only' | 'highway' | 'urban'
+  oddValidatedAt: timestamp("odd_validated_at"),    // when ODD boundaries were last confirmed
   createdAt: timestamp("created_at").notNull().defaultNow(),
 }, (t) => [
   index("corridor_carrier_idx").on(t.carrierId),
   index("corridor_origin_dest_idx").on(t.originRegion, t.destRegion),
+  index("corridor_sae_level_idx").on(t.saeLevel),
 ]);
 
 export type User = typeof users.$inferSelect;
