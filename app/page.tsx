@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { sendGAEvent } from "@next/third-parties/google";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -55,6 +55,20 @@ export default function LaneBriefLanding() {
     disclaimer: string;
   } | null>(null);
   const [csError, setCsError] = useState<string | null>(null);
+
+  // A/B test: Scout pricing — "control" ($199) vs "test" ($299)
+  const [priceVariant, setPriceVariant] = useState<"control" | "test">("control");
+
+  // ROI calculator state
+  const [roiLoads, setRoiLoads] = useState("20");
+  const [roiRevPerLoad, setRoiRevPerLoad] = useState("3500");
+  const [roiMarginPct, setRoiMarginPct] = useState("12");
+  const [roiResult, setRoiResult] = useState<{
+    monthlyGain: number;
+    annualGain: number;
+    multiple: number;
+  } | null>(null);
+
 
   const handleCarrierScore = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -131,6 +145,53 @@ export default function LaneBriefLanding() {
       setSubmitting(false);
       setSubmitted(true);
     }
+  };
+
+  // A/B test: assign variant on mount, persist in localStorage
+  useEffect(() => {
+    let variant = localStorage.getItem("lb_ab_scout_price") as "control" | "test" | null;
+    if (variant !== "control" && variant !== "test") {
+      variant = Math.random() < 0.5 ? "control" : "test";
+      localStorage.setItem("lb_ab_scout_price", variant);
+    }
+    setPriceVariant(variant);
+    sendGAEvent("event", "ab_test_exposure", {
+      test_name: "scout_price_apr2026",
+      variant,
+      price: variant === "control" ? 199 : 299,
+    });
+  }, []);
+
+  const handleRoiCalc = (e: React.FormEvent) => {
+    e.preventDefault();
+    const loads = parseFloat(roiLoads);
+    const rev = parseFloat(roiRevPerLoad);
+    const margin = parseFloat(roiMarginPct);
+    if (isNaN(loads) || isNaN(rev) || isNaN(margin) || loads <= 0 || rev <= 0 || margin <= 0) return;
+
+    const loadsPerMonth = (loads * 52) / 12;
+    const currentMonthlyMargin = loadsPerMonth * rev * (margin / 100);
+    // Conservative estimate: 5% margin improvement from better lane intelligence
+    const monthlyGain = currentMonthlyMargin * 0.05;
+    const annualGain = monthlyGain * 12;
+    const multiple = annualGain / (199 * 12);
+
+    setRoiResult({ monthlyGain, annualGain, multiple });
+    sendGAEvent("event", "roi_calculator_submit", {
+      loads_per_week: loads,
+      avg_rev_per_load: rev,
+      margin_pct: margin,
+      estimated_annual_gain: Math.round(annualGain),
+    });
+  };
+
+  const handleScoutCTAClick = () => {
+    sendGAEvent("event", "pricing_cta_click", {
+      plan: "scout",
+      test_name: "scout_price_apr2026",
+      variant: priceVariant,
+      price: priceVariant === "control" ? 199 : 299,
+    });
   };
 
   return (
@@ -945,16 +1006,20 @@ export default function LaneBriefLanding() {
             </div>
 
             <div className="grid sm:grid-cols-3 gap-6 items-start max-w-4xl mx-auto mb-12">
-              {/* Scout */}
+              {/* Scout — A/B test: control=$199 / test=$299 */}
               <Card className="border-border/40">
                 <CardHeader>
                   <CardTitle className="text-xl">Scout</CardTitle>
                   <p className="text-sm text-muted-foreground">3 lanes</p>
                   <div className="flex items-end gap-2 mt-2">
-                    <span className="text-4xl font-bold text-foreground">$199</span>
+                    <span className="text-4xl font-bold text-foreground" suppressHydrationWarning>
+                      {priceVariant === "test" ? "$299" : "$199"}
+                    </span>
                     <span className="text-muted-foreground mb-1">/mo</span>
                   </div>
-                  <p className="text-xs text-muted-foreground">or $1,990/yr (2 months free)</p>
+                  <p className="text-xs text-muted-foreground" suppressHydrationWarning>
+                    {priceVariant === "test" ? "or $2,990/yr (2 months free)" : "or $1,990/yr (2 months free)"}
+                  </p>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <ul className="space-y-3 text-sm" aria-label="Scout features">
@@ -972,11 +1037,17 @@ export default function LaneBriefLanding() {
                       </li>
                     ))}
                   </ul>
-                  <a href="https://buy.stripe.com/cNicMY58JckwaGl03s1Nu06" className={cn(buttonVariants({ variant: "outline" }), "w-full mt-4 justify-center")}>
-                    Get Scout — $199/mo
+                  {/* TODO: create $299 Stripe link for test variant before launch */}
+                  <a
+                    href="https://buy.stripe.com/cNicMY58JckwaGl03s1Nu06"
+                    onClick={handleScoutCTAClick}
+                    className={cn(buttonVariants({ variant: "outline" }), "w-full mt-4 justify-center")}
+                    suppressHydrationWarning
+                  >
+                    {priceVariant === "test" ? "Get Scout — $299/mo" : "Get Scout — $199/mo"}
                   </a>
                   <a href="https://buy.stripe.com/dRmcMY7gRbgs7u9aI61Nu07" className="block text-xs text-center text-primary underline underline-offset-2 hover:text-primary/80 transition-colors mt-2">
-                    Save $398/yr with annual billing
+                    Save with annual billing
                   </a>
                 </CardContent>
               </Card>
@@ -1066,6 +1137,103 @@ export default function LaneBriefLanding() {
               Need more than 10 lanes? <a href="mailto:nick@lanebrief.com" className="text-primary underline underline-offset-2 hover:text-primary/80 transition-colors">Contact our sales team</a> for a custom quote.
             </p>
 
+            {/* ROI Calculator */}
+            <div className="max-w-2xl mx-auto mb-16">
+              <Card className="border-primary/30 bg-primary/5">
+                <CardHeader>
+                  <CardTitle className="text-xl">Calculate your ROI</CardTitle>
+                  <p className="text-sm text-muted-foreground">
+                    See how much better lane intelligence could add to your bottom line.
+                    Based on a conservative 5% margin improvement from smarter pricing decisions.
+                  </p>
+                </CardHeader>
+                <CardContent>
+                  <form onSubmit={handleRoiCalc} className="space-y-4" aria-label="ROI calculator">
+                    <div className="grid sm:grid-cols-3 gap-4">
+                      <div className="space-y-1">
+                        <label htmlFor="roi-loads" className="text-xs text-muted-foreground font-medium uppercase tracking-wide">
+                          Loads / week
+                        </label>
+                        <Input
+                          id="roi-loads"
+                          type="number"
+                          min="1"
+                          step="1"
+                          value={roiLoads}
+                          onChange={(e) => setRoiLoads(e.target.value)}
+                          placeholder="20"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label htmlFor="roi-rev" className="text-xs text-muted-foreground font-medium uppercase tracking-wide">
+                          Avg revenue / load
+                        </label>
+                        <Input
+                          id="roi-rev"
+                          type="number"
+                          min="100"
+                          step="100"
+                          value={roiRevPerLoad}
+                          onChange={(e) => setRoiRevPerLoad(e.target.value)}
+                          placeholder="3500"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <label htmlFor="roi-margin" className="text-xs text-muted-foreground font-medium uppercase tracking-wide">
+                          Gross margin %
+                        </label>
+                        <Input
+                          id="roi-margin"
+                          type="number"
+                          min="1"
+                          max="100"
+                          step="0.5"
+                          value={roiMarginPct}
+                          onChange={(e) => setRoiMarginPct(e.target.value)}
+                          placeholder="12"
+                        />
+                      </div>
+                    </div>
+                    <button type="submit" className={cn(buttonVariants(), "w-full bg-primary text-primary-foreground hover:bg-primary/90")}>
+                      Calculate my ROI →
+                    </button>
+                  </form>
+
+                  {roiResult && (
+                    <div className="mt-6 pt-6 border-t border-border/40" role="region" aria-label="ROI results" aria-live="polite">
+                      <div className="grid sm:grid-cols-3 gap-4 text-center">
+                        <div>
+                          <p className="font-mono text-2xl font-bold text-primary">
+                            ${Math.round(roiResult.monthlyGain).toLocaleString()}
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-1">Est. monthly gain</p>
+                        </div>
+                        <div>
+                          <p className="font-mono text-2xl font-bold text-primary">
+                            ${Math.round(roiResult.annualGain).toLocaleString()}
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-1">Est. annual gain</p>
+                        </div>
+                        <div>
+                          <p className="font-mono text-2xl font-bold text-primary">
+                            {roiResult.multiple.toFixed(1)}×
+                          </p>
+                          <p className="text-xs text-muted-foreground mt-1">Return on subscription</p>
+                        </div>
+                      </div>
+                      <p className="text-xs text-muted-foreground text-center mt-4">
+                        Estimate based on a 5% margin improvement from better lane intelligence.
+                        Actual results vary by lane mix and market conditions.
+                      </p>
+                      <a href="#get-started" className={cn(buttonVariants({ variant: "outline" }), "w-full mt-4 justify-center")}>
+                        Get your free lane brief to see the data →
+                      </a>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+
             {/* Competitor comparison */}
             <div className="max-w-2xl mx-auto space-y-4">
               <p className="text-sm text-muted-foreground font-medium uppercase tracking-widest mb-6 text-center">How we compare</p>
@@ -1144,6 +1312,72 @@ export default function LaneBriefLanding() {
                 </Card>
               ))}
             </dl>
+          </div>
+        </section>
+
+        <Separator className="opacity-20" />
+
+        {/* ── What's Coming ────────────────────────────────────────────── */}
+        <section id="coming-soon" aria-labelledby="coming-soon-heading" className="py-20 px-4">
+          <div className="max-w-4xl mx-auto">
+            <div className="text-center mb-10">
+              <Badge className="mb-4 bg-muted text-muted-foreground border border-border/60 text-xs tracking-wide">
+                What&apos;s Coming
+              </Badge>
+              <h2 id="coming-soon-heading" className="text-2xl sm:text-3xl font-bold mb-3">
+                More intelligence, launching soon
+              </h2>
+              <p className="text-muted-foreground text-sm max-w-md mx-auto">
+                We&apos;re building the next layer of freight intelligence. Here&apos;s what&apos;s on deck.
+              </p>
+            </div>
+
+            <div className="grid sm:grid-cols-3 gap-5">
+              <Card className="bg-card border-border/40 relative overflow-hidden">
+                <div className="absolute top-3 right-3">
+                  <Badge className="bg-primary/10 text-primary border border-primary/25 text-[10px] font-medium">
+                    Coming Soon
+                  </Badge>
+                </div>
+                <CardContent className="p-5 pt-6">
+                  <div className="text-2xl mb-3" aria-hidden="true">🔔</div>
+                  <h3 className="font-semibold text-foreground mb-2">Real-Time Lane Alerts</h3>
+                  <p className="text-sm text-muted-foreground leading-relaxed">
+                    Get notified the moment your lanes move more than 5% — before your competition prices you out.
+                  </p>
+                </CardContent>
+              </Card>
+
+              <Card className="bg-card border-border/40 relative overflow-hidden">
+                <div className="absolute top-3 right-3">
+                  <Badge className="bg-primary/10 text-primary border border-primary/25 text-[10px] font-medium">
+                    Coming Soon
+                  </Badge>
+                </div>
+                <CardContent className="p-5 pt-6">
+                  <div className="text-2xl mb-3" aria-hidden="true">🚧</div>
+                  <h3 className="font-semibold text-foreground mb-2">Tariff Impact Flags</h3>
+                  <p className="text-sm text-muted-foreground leading-relaxed">
+                    See which of your US-MX and cross-border lanes are exposed to tariff changes — in real time.
+                  </p>
+                </CardContent>
+              </Card>
+
+              <Card className="bg-card border-border/40 relative overflow-hidden">
+                <div className="absolute top-3 right-3">
+                  <Badge className="bg-primary/10 text-primary border border-primary/25 text-[10px] font-medium">
+                    Coming Soon
+                  </Badge>
+                </div>
+                <CardContent className="p-5 pt-6">
+                  <div className="text-2xl mb-3" aria-hidden="true">📊</div>
+                  <h3 className="font-semibold text-foreground mb-2">Carrier Capacity Overlay</h3>
+                  <p className="text-sm text-muted-foreground leading-relaxed">
+                    Know when capacity tightens on your top lanes before rates spike — so you secure trucks first.
+                  </p>
+                </CardContent>
+              </Card>
+            </div>
           </div>
         </section>
 
@@ -1246,6 +1480,7 @@ export default function LaneBriefLanding() {
                 <li><a href="#how-it-works" className="hover:text-foreground transition-colors">How it works</a></li>
                 <li><a href="#sample" className="hover:text-foreground transition-colors">Sample report</a></li>
                 <li><a href="#pricing" className="hover:text-foreground transition-colors">Pricing</a></li>
+                <li><a href="#coming-soon" className="hover:text-foreground transition-colors">Coming soon</a></li>
                 <li><a href="#get-started" className="hover:text-foreground transition-colors">Get started</a></li>
               </ul>
             </nav>
