@@ -1,0 +1,139 @@
+name: Code Health
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint-typecheck:
+    name: Lint & Type Check
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run ESLint
+        id: lint
+        run: |
+          set +e
+          npx eslint . --format json --output-file eslint-results.json 2>&1
+          LINT_EXIT=$?
+          set -e
+          echo "exit_code=$LINT_EXIT" >> $GITHUB_OUTPUT
+          if [ $LINT_EXIT -eq 0 ]; then
+            echo "status=✅ Passed" >> $GITHUB_OUTPUT
+            echo "detail=No ESLint errors found." >> $GITHUB_OUTPUT
+          else
+            ERROR_COUNT=$(jq '[.[].errorCount] | add // 0' eslint-results.json)
+            WARN_COUNT=$(jq '[.[].warningCount] | add // 0' eslint-results.json)
+            echo "status=❌ Failed" >> $GITHUB_OUTPUT
+            echo "detail=${ERROR_COUNT} error(s), ${WARN_COUNT} warning(s)" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Run TypeScript check
+        id: typecheck
+        run: |
+          set +e
+          npx tsc --noEmit 2>&1 | tee tsc-output.txt
+          TSC_EXIT=${PIPESTATUS[0]}
+          set -e
+          echo "exit_code=$TSC_EXIT" >> $GITHUB_OUTPUT
+          if [ $TSC_EXIT -eq 0 ]; then
+            echo "status=✅ Passed" >> $GITHUB_OUTPUT
+            echo "detail=No type errors found." >> $GITHUB_OUTPUT
+          else
+            ERROR_COUNT=$(grep -c "error TS" tsc-output.txt || echo 0)
+            echo "status=❌ Failed" >> $GITHUB_OUTPUT
+            echo "detail=${ERROR_COUNT} type error(s) found" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Run npm audit
+        id: audit
+        run: |
+          set +e
+          npm audit --json > audit-output.json 2>&1
+          AUDIT_EXIT=$?
+          set -e
+          echo "exit_code=$AUDIT_EXIT" >> $GITHUB_OUTPUT
+          if [ $AUDIT_EXIT -eq 0 ]; then
+            echo "status=✅ Clean" >> $GITHUB_OUTPUT
+            echo "detail=No vulnerabilities found." >> $GITHUB_OUTPUT
+          else
+            CRITICAL=$(jq '.metadata.vulnerabilities.critical // 0' audit-output.json)
+            HIGH=$(jq '.metadata.vulnerabilities.high // 0' audit-output.json)
+            MODERATE=$(jq '.metadata.vulnerabilities.moderate // 0' audit-output.json)
+            echo "status=⚠️ Issues found" >> $GITHUB_OUTPUT
+            echo "detail=${CRITICAL} critical, ${HIGH} high, ${MODERATE} moderate" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Post PR comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const lint = {
+              status: '${{ steps.lint.outputs.status }}',
+              detail: '${{ steps.lint.outputs.detail }}'
+            };
+            const tsc = {
+              status: '${{ steps.typecheck.outputs.status }}',
+              detail: '${{ steps.typecheck.outputs.detail }}'
+            };
+            const audit = {
+              status: '${{ steps.audit.outputs.status }}',
+              detail: '${{ steps.audit.outputs.detail }}'
+            };
+
+            const allPassed =
+              '${{ steps.lint.outputs.exit_code }}' === '0' &&
+              '${{ steps.typecheck.outputs.exit_code }}' === '0';
+
+            const badge = allPassed ? '🟢 Code health: OK' : '🔴 Code health: Issues found';
+
+            const body = [
+              `## ${badge}`,
+              '',
+              '| Check | Result | Detail |',
+              '|-------|--------|--------|',
+              `| ESLint | ${lint.status} | ${lint.detail} |`,
+              `| TypeScript | ${tsc.status} | ${tsc.detail} |`,
+              `| npm audit | ${audit.status} | ${audit.detail} |`,
+              '',
+              '> _Automated code health scan — Phase 1 (read-only observer). No auto-fixes._',
+            ].join('\n');
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+            });
+
+            const existing = comments.find(c =>
+              c.user.type === 'Bot' && c.body.includes('Code health')
+            );
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
