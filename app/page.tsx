@@ -1523,6 +1523,7 @@ export default function LaneBriefLanding() {
             <nav aria-label="Legal links" className="flex gap-4">
               <a href="/privacy" className="hover:text-foreground transition-colors">Privacy Policy</a>
               <a href="/terms" className="hover:text-foreground transition-colors">Terms of Service</a>
+              <a href="/data-deletion" className="hover:text-foreground transition-colors">Data Deletion</a>
             </nav>
           </div>
         </div>
