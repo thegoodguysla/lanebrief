@@ -12,23 +12,54 @@ import { AutonomousCorridorMap } from "@/components/autonomous-corridor-map";
 import Link from "next/link";
 
 // Detect if a lane crosses the US-MX or US-CA border for tariff impact flagging
-const MX_INDICATORS = [
-  "mexico", " mx", ",mx", "monterrey", "guadalajara", "cdmx", "mexico city",
-  "tijuana", "juarez", "ciudad juarez", "nuevo laredo", "reynosa", "matamoros",
-  "nogales", "mexicali", "saltillo", "hermosillo", "chihuahua", "torreon",
+// High-risk city keywords sourced from Research Cycle 4 Market Intelligence Report (April 2026)
+const MX_HIGH_RISK = [
+  // Border crossing city pairs — highest volatility (Mexico electronic Manifest + 1,400+ tariffs)
+  "nuevo laredo", "laredo",
+  "ciudad juarez", "ciudad juárez", "juarez", "juárez", "el paso",
+  "reynosa", "pharr", "mcallen",
+  "piedras negras", "eagle pass",
+  "ciudad acuna", "ciudad acuña", "del rio",
+  "nogales",
+  "otay mesa", "tijuana",
 ];
-const CA_INDICATORS = [
+const MX_MEDIUM_RISK = [
+  "calexico", "mexicali",
+];
+const MX_GENERAL = [
+  "mexico", " mx", ",mx", "monterrey", "guadalajara", "cdmx", "mexico city",
+  "matamoros", "saltillo", "hermosillo", "chihuahua", "torreon",
+];
+
+// US-CA high-risk: auto industry corridors with documented 57% volume spike pre-deadline
+const CA_HIGH_RISK = [
+  "detroit", "windsor",
+  "port huron", "sarnia",
+];
+const CA_MEDIUM_RISK = [
+  "buffalo", "fort erie",
+  "blaine", "surrey",
+  "pembina", "emerson",
+  "sweetgrass", "coutts",
+];
+const CA_GENERAL = [
   "canada", "ontario", "quebec", "british columbia", "alberta", "manitoba",
   "saskatchewan", "nova scotia", "new brunswick", "prince edward island", "newfoundland",
   " on,", " qc,", " ab,", " mb,", " sk,", " ns,", " nb,", " pe,", " nl,",
   "toronto", "montreal", "vancouver", "calgary", "edmonton", "ottawa", "winnipeg",
-  "halifax", "hamilton", "london, on", "kitchener", "windsor, on",
+  "halifax", "hamilton", "london, on", "kitchener",
 ];
 
-function isTariffImpactedLane(lane: { origin: string; destination: string }): "MX" | "CA" | null {
+type TariffFlag = { region: "MX" | "CA"; risk: "high" | "medium" } | null;
+
+function isTariffImpactedLane(lane: { origin: string; destination: string }): TariffFlag {
   const text = `${lane.origin} ${lane.destination}`.toLowerCase();
-  if (MX_INDICATORS.some((kw) => text.includes(kw))) return "MX";
-  if (CA_INDICATORS.some((kw) => text.includes(kw))) return "CA";
+  if (MX_HIGH_RISK.some((kw) => text.includes(kw))) return { region: "MX", risk: "high" };
+  if (CA_HIGH_RISK.some((kw) => text.includes(kw))) return { region: "CA", risk: "high" };
+  if (MX_MEDIUM_RISK.some((kw) => text.includes(kw))) return { region: "MX", risk: "medium" };
+  if (CA_MEDIUM_RISK.some((kw) => text.includes(kw))) return { region: "CA", risk: "medium" };
+  if (MX_GENERAL.some((kw) => text.includes(kw))) return { region: "MX", risk: "medium" };
+  if (CA_GENERAL.some((kw) => text.includes(kw))) return { region: "CA", risk: "medium" };
   return null;
 }
 
@@ -377,12 +408,20 @@ export default function DashboardPage() {
                         <Badge variant="outline" className="text-xs capitalize">
                           {lane.equipment.replace("_", " ")}
                         </Badge>
-                        {tariffFlag && (
+                        {tariffFlag && tariffFlag.risk === "high" && (
                           <span
-                            title={`Tariff-impacted lane — rates volatile +15-25% (April 2026)`}
+                            title={`Tariff-impacted lane — rates volatile +15-25% (April 2026). High-risk border crossing.`}
                             className="inline-flex items-center gap-1 rounded-full border border-amber-400/60 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-700 dark:bg-amber-950/30 dark:text-amber-400 dark:border-amber-500/40 cursor-help"
                           >
-                            ⚠ US-{tariffFlag} tariff risk
+                            ⚠ US-{tariffFlag.region} tariff risk
+                          </span>
+                        )}
+                        {tariffFlag && tariffFlag.risk === "medium" && (
+                          <span
+                            title={`Tariff-monitored lane — potential rate impact from US-${tariffFlag.region} tariffs (April 2026).`}
+                            className="inline-flex items-center gap-1 rounded-full border border-yellow-300/60 bg-yellow-50/60 px-2 py-0.5 text-[10px] font-medium text-yellow-700 dark:bg-yellow-950/20 dark:text-yellow-500 dark:border-yellow-600/30 cursor-help"
+                          >
+                            ◑ US-{tariffFlag.region} tariff-monitored
                           </span>
                         )}
                         <AutonomousCoverageBadge
