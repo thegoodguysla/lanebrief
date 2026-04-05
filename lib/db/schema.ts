@@ -18,6 +18,7 @@ export const users = pgTable("users", {
   clerkId: text("clerk_id").notNull().unique(),
   email: text("email").notNull(),
   alertOptIn: boolean("alert_opt_in").notNull().default(false),
+  alertMode: text("alert_mode").notNull().default("digest"), // 'instant' | 'digest'
   autonomousBeta: boolean("autonomous_beta").notNull().default(false),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),

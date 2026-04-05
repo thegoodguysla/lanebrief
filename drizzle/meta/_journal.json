@@ -29,6 +29,13 @@
       "when": 1743984000000,
       "tag": "0004_demo_bookings",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1743984001000,
+      "tag": "0005_alert_mode",
+      "breakpoints": true
     }
   ]
 }

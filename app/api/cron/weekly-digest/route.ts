@@ -174,12 +174,13 @@ export async function GET(req: Request) {
   // Load only opted-in users
   const userIds = [...new Set(allLanes.map((l) => l.userId))];
   const userRows = await db
-    .select({ id: users.id, email: users.email, alertOptIn: users.alertOptIn })
+    .select({ id: users.id, email: users.email, alertOptIn: users.alertOptIn, alertMode: users.alertMode })
     .from(users)
     .where(inArray(users.id, userIds));
 
   const userEmailMap = new Map(userRows.map((u) => [u.id, u.email]));
-  const optedInUserIds = new Set(userRows.filter((u) => u.alertOptIn).map((u) => u.id));
+  // weekly-digest only fires for users who opted in AND chose digest mode (or left it at default)
+  const optedInUserIds = new Set(userRows.filter((u) => u.alertOptIn && u.alertMode === "digest").map((u) => u.id));
 
   const lanesWithUsers: LaneWithUser[] = allLanes
     .filter((l) => optedInUserIds.has(l.userId))

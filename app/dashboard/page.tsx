@@ -103,8 +103,10 @@ export default function DashboardPage() {
   const [error, setError] = useState("");
   const [initialized, setInitialized] = useState(false);
   const [alertOptIn, setAlertOptIn] = useState(false);
+  const [alertMode, setAlertMode] = useState<"instant" | "digest">("digest");
   const [autonomousBeta, setAutonomousBeta] = useState(false);
   const [savingOptIn, setSavingOptIn] = useState(false);
+  const [savingMode, setSavingMode] = useState(false);
   const [savingThresholdFor, setSavingThresholdFor] = useState<string | null>(null);
   const [avCoverage, setAvCoverage] = useState<Record<string, AvCoverageData | "loading">>({});
   const [expandedAvLane, setExpandedAvLane] = useState<string | null>(null);
@@ -136,6 +138,7 @@ export default function DashboardPage() {
       .then((r) => r.json())
       .then((userData) => {
         setAlertOptIn(userData.user?.alertOptIn ?? false);
+        setAlertMode(userData.user?.alertMode ?? "digest");
         setAutonomousBeta(userData.user?.autonomousBeta ?? false);
         return Promise.all([
           fetch("/api/lanes").then((r) => r.json()),
@@ -243,6 +246,20 @@ export default function DashboardPage() {
     }
   }
 
+  async function saveAlertMode(mode: "instant" | "digest") {
+    setSavingMode(true);
+    try {
+      const res = await fetch("/api/user/alert-mode", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ alertMode: mode }),
+      });
+      if (res.ok) setAlertMode(mode);
+    } finally {
+      setSavingMode(false);
+    }
+  }
+
   async function saveThreshold(laneId: string, pct: number) {
     setSavingThresholdFor(laneId);
     try {
@@ -343,21 +360,41 @@ export default function DashboardPage() {
               Track up to 5 lanes. Generate AI-powered freight intelligence briefs anytime.
             </p>
           </div>
-          <div className="flex items-center gap-3 rounded-lg border border-border px-4 py-3 shrink-0">
-            <div>
-              <p className="text-sm font-medium">Weekly Rate Alerts</p>
-              <p className="text-xs text-muted-foreground">Email digest when lanes hit threshold</p>
+          <div className="flex flex-col gap-3 rounded-lg border border-border px-4 py-3 shrink-0 min-w-[220px]">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium">Rate Alerts</p>
+                <p className="text-xs text-muted-foreground">Email when lanes hit threshold</p>
+              </div>
+              <button
+                onClick={toggleAlertOptIn}
+                disabled={savingOptIn}
+                aria-pressed={alertOptIn}
+                className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring ${alertOptIn ? "bg-primary" : "bg-muted"} disabled:opacity-50`}
+              >
+                <span
+                  className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-lg transition-transform ${alertOptIn ? "translate-x-5" : "translate-x-0"}`}
+                />
+              </button>
             </div>
-            <button
-              onClick={toggleAlertOptIn}
-              disabled={savingOptIn}
-              aria-pressed={alertOptIn}
-              className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-ring ${alertOptIn ? "bg-primary" : "bg-muted"} disabled:opacity-50`}
-            >
-              <span
-                className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow-lg transition-transform ${alertOptIn ? "translate-x-5" : "translate-x-0"}`}
-              />
-            </button>
+            {alertOptIn && (
+              <div className="flex gap-1 rounded-md border border-border p-0.5">
+                <button
+                  onClick={() => { if (alertMode !== "instant") saveAlertMode("instant"); }}
+                  disabled={savingMode}
+                  className={`flex-1 rounded px-2 py-1 text-xs font-medium transition-colors ${alertMode === "instant" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                >
+                  Instant
+                </button>
+                <button
+                  onClick={() => { if (alertMode !== "digest") saveAlertMode("digest"); }}
+                  disabled={savingMode}
+                  className={`flex-1 rounded px-2 py-1 text-xs font-medium transition-colors ${alertMode === "digest" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                >
+                  Daily digest
+                </button>
+              </div>
+            )}
           </div>
         </div>
 

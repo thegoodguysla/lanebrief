@@ -101,8 +101,7 @@ const SIGNATURE_INTEL = `
 </table>
 `;
 
-// Placeholders — replace before go-live
-const CALENDLY_URL = "https://calendly.com/lanebrief/15min";
+const CALENDLY_URL = "https://lanebrief.com/book-demo";
 const SAMPLE_PDF_URL = "https://lanebrief.com/sample-brief.pdf";
 
 function buildSignupEmail(name: string): string {
