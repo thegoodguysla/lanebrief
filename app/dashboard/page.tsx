@@ -63,6 +63,27 @@ function isTariffImpactedLane(lane: { origin: string; destination: string }): Ta
   return null;
 }
 
+// USMCA Compliance Flag — Canada 35% tariff on non-USMCA goods (effective 2026)
+// Risk level derived from equipment type as a proxy for likely commodity category:
+//   flatbed   → steel, aluminum, auto parts, lumber — highest USMCA scrutiny
+//   dry_van   → general merchandise, textiles, electronics — moderate exposure
+//   reefer    → fresh produce/dairy often USMCA-exempt, processed foods at risk
+type USMCAFlag = { risk: "high" | "medium" } | null;
+
+function getUSMCAFlag(lane: { origin: string; destination: string; equipment: string }): USMCAFlag {
+  const text = `${lane.origin} ${lane.destination}`.toLowerCase();
+  const isCALane =
+    CA_HIGH_RISK.some((kw) => text.includes(kw)) ||
+    CA_MEDIUM_RISK.some((kw) => text.includes(kw)) ||
+    CA_GENERAL.some((kw) => text.includes(kw));
+  if (!isCALane) return null;
+
+  // flatbed carries steel/aluminum/auto parts — highest USMCA non-compliance risk
+  if (lane.equipment === "flatbed") return { risk: "high" };
+  // dry_van general cargo has meaningful non-USMCA exposure (textiles, electronics)
+  return { risk: "medium" };
+}
+
 type Lane = {
   id: string;
   origin: string;
@@ -430,6 +451,7 @@ export default function DashboardPage() {
               const avData = avCoverage[lane.id];
               const avExpanded = expandedAvLane === lane.id;
               const tariffFlag = isTariffImpactedLane(lane);
+              const usmcaFlag = getUSMCAFlag(lane);
               return (
                 <div
                   key={lane.id}
@@ -459,6 +481,22 @@ export default function DashboardPage() {
                             className="inline-flex items-center gap-1 rounded-full border border-yellow-300/60 bg-yellow-50/60 px-2 py-0.5 text-[10px] font-medium text-yellow-700 dark:bg-yellow-950/20 dark:text-yellow-500 dark:border-yellow-600/30 cursor-help"
                           >
                             ◑ US-{tariffFlag.region} tariff-monitored
+                          </span>
+                        )}
+                        {usmcaFlag && usmcaFlag.risk === "high" && (
+                          <span
+                            title="35% tariff exposure — cargo on this US-CA lane likely faces Canada's non-USMCA tariff. High-risk categories: auto parts, steel, aluminum. Verify USMCA eligibility before quoting."
+                            className="inline-flex items-center gap-1 rounded-full border border-red-400/60 bg-red-50 px-2 py-0.5 text-[10px] font-medium text-red-700 dark:bg-red-950/30 dark:text-red-400 dark:border-red-500/40 cursor-help"
+                          >
+                            ⛔ 35% USMCA risk
+                          </span>
+                        )}
+                        {usmcaFlag && usmcaFlag.risk === "medium" && (
+                          <span
+                            title="35% tariff exposure possible — cargo on this US-CA lane may not qualify for USMCA treatment. Categories at risk: textiles, electronics, processed foods. Confirm commodity eligibility."
+                            className="inline-flex items-center gap-1 rounded-full border border-orange-400/60 bg-orange-50 px-2 py-0.5 text-[10px] font-medium text-orange-700 dark:bg-orange-950/30 dark:text-orange-400 dark:border-orange-500/40 cursor-help"
+                          >
+                            ⚠ USMCA exposure
                           </span>
                         )}
                         <AutonomousCoverageBadge

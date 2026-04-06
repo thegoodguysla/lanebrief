@@ -8,6 +8,27 @@ import { randomUUID } from "crypto";
 // Vercel Cron: every Monday 8am ET (13:00 UTC)
 // vercel.json schedule: "0 13 * * 1"
 
+// USMCA Compliance Flag helpers (mirrors dashboard detection)
+const CA_HIGH_RISK = ["detroit", "windsor", "port huron", "sarnia"];
+const CA_MEDIUM_RISK = ["buffalo", "fort erie", "blaine", "surrey", "pembina", "emerson", "sweetgrass", "coutts"];
+const CA_GENERAL = [
+  "canada", "ontario", "quebec", "british columbia", "alberta", "manitoba",
+  "saskatchewan", "nova scotia", "new brunswick", "prince edward island", "newfoundland",
+  " on,", " qc,", " ab,", " mb,", " sk,", " ns,", " nb,", " pe,", " nl,",
+  "toronto", "montreal", "vancouver", "calgary", "edmonton", "ottawa", "winnipeg",
+  "halifax", "hamilton", "london, on", "kitchener",
+];
+
+function getUSMCAFlag(origin: string, destination: string, equipment: string): "high" | "medium" | null {
+  const text = `${origin} ${destination}`.toLowerCase();
+  const isCALane =
+    CA_HIGH_RISK.some((kw) => text.includes(kw)) ||
+    CA_MEDIUM_RISK.some((kw) => text.includes(kw)) ||
+    CA_GENERAL.some((kw) => text.includes(kw));
+  if (!isCALane) return null;
+  return equipment === "flatbed" ? "high" : "medium";
+}
+
 function getResend() {
   return new Resend(process.env.RESEND_API_KEY);
 }
@@ -62,8 +83,33 @@ Respond with ONLY a JSON object (no markdown):
 }
 
 function buildDigestEmailHtml(
-  alerts: { origin: string; destination: string; equipment: string; oldRate: number | null; newRate: number; deltaPct: number | null; insight: string }[]
+  alerts: { origin: string; destination: string; equipment: string; oldRate: number | null; newRate: number; deltaPct: number | null; insight: string; usmcaRisk: "high" | "medium" | null }[]
 ): string {
+  const usmcaFlagged = alerts.filter((a) => a.usmcaRisk !== null);
+  const usmcaSection = usmcaFlagged.length > 0
+    ? `
+<div style="margin-top: 20px; padding: 16px 20px; background-color: #FFF5F5; border-radius: 8px; border-left: 3px solid #E53E3E;">
+  <p style="margin: 0 0 8px 0; font-size: 13px; font-weight: bold; color: #C53030;">
+    ⚠ USMCA Compliance Alert — 35% Tariff Exposure
+  </p>
+  <p style="margin: 0 0 8px 0; font-size: 13px; color: #4A5568;">
+    Canada's 35% tariff on non-USMCA goods is now in effect. The following lane${usmcaFlagged.length > 1 ? "s" : ""} may be affected:
+  </p>
+  <ul style="margin: 0; padding-left: 20px; font-size: 13px; color: #4A5568;">
+    ${usmcaFlagged.map((a) => {
+      const riskLabel = a.usmcaRisk === "high"
+        ? "High risk — flatbed cargo (steel, aluminum, auto parts) faces strict USMCA rules of origin"
+        : "Moderate risk — verify commodity eligibility for USMCA treatment";
+      return `<li style="margin-bottom: 4px;"><strong>${a.origin} → ${a.destination}</strong> (${a.equipment.replace("_", " ")}): ${riskLabel}</li>`;
+    }).join("")}
+  </ul>
+  <p style="margin: 10px 0 0 0; font-size: 12px; color: #718096;">
+    Advise shippers to confirm USMCA certificate of origin. High-risk categories: auto parts, steel, aluminum, textiles.
+    <a href="https://lanebrief.com/dashboard" style="color: #C53030;">View lanes →</a>
+  </p>
+</div>`
+    : "";
+
   const alertRows = alerts
     .map((a) => {
       const arrowColor = (a.deltaPct ?? 0) >= 0 ? "#00C2A8" : "#E53E3E";
@@ -113,6 +159,8 @@ function buildDigestEmailHtml(
       ${alertRows}
     </tbody>
   </table>
+
+  ${usmcaSection}
 
   <div style="margin-top: 20px; padding: 16px 20px; background-color: #F7FAFC; border-radius: 8px; border-left: 3px solid #00C2A8;">
     <p style="margin: 0; font-size: 13px; color: #4A5568;">
@@ -274,6 +322,7 @@ export async function GET(req: Request) {
         newRate,
         deltaPct: deltaPct !== null ? Math.round(deltaPct * 10) / 10 : null,
         insight: estimate.insight,
+        usmcaRisk: getUSMCAFlag(lane.origin, lane.destination, lane.equipment),
       });
       userAlerts.set(lane.userId, alerts);
     }

@@ -5,6 +5,22 @@ import { eq, desc, and } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { generateText } from "ai";
 
+// USMCA detection mirrors dashboard logic
+const CA_KEYWORDS = [
+  "canada", "ontario", "quebec", "british columbia", "alberta", "manitoba",
+  "saskatchewan", "nova scotia", "new brunswick", "prince edward island", "newfoundland",
+  " on,", " qc,", " ab,", " mb,", " sk,", " ns,", " nb,", " pe,", " nl,",
+  "toronto", "montreal", "vancouver", "calgary", "edmonton", "ottawa", "winnipeg",
+  "halifax", "hamilton", "london, on", "kitchener",
+  "detroit", "windsor", "port huron", "sarnia",
+  "buffalo", "fort erie", "blaine", "surrey", "pembina", "emerson", "sweetgrass", "coutts",
+];
+
+function isCALane(origin: string, destination: string): boolean {
+  const text = `${origin} ${destination}`.toLowerCase();
+  return CA_KEYWORDS.some((kw) => text.includes(kw));
+}
+
 async function getDbUser(clerkId: string) {
   const db = getDb();
   const [user] = await db.select().from(users).where(eq(users.clerkId, clerkId)).limit(1);
@@ -60,6 +76,11 @@ export async function POST(req: Request) {
   const month = now.toLocaleString("en-US", { month: "long" });
   const year = now.getFullYear();
 
+  const caLane = isCALane(lane.origin, lane.destination);
+  const usmcaContext = caLane
+    ? `\n5. USMCA Compliance Risk: This is a US-Canada lane. Canada's 35% tariff on non-USMCA compliant goods is now in effect (2026). Briefly flag which commodity categories on this lane face the highest USMCA exposure (auto parts, steel, aluminum, textiles) and advise the broker to confirm certificate of origin with shippers before quoting.`
+    : "";
+
   const { text } = await generateText({
     model: "anthropic/claude-sonnet-4.6",
     prompt: `You are a freight market analyst writing a concise intelligence brief for an independent freight broker.
@@ -72,7 +93,7 @@ Write a 3-5 paragraph intelligence brief covering:
 1. Current market conditions and capacity on this lane
 2. AI-estimated rate range (clearly labeled as AI-estimated)
 3. Seasonal factors affecting this lane right now
-4. Key risks or opportunities for this month
+4. Key risks or opportunities for this month${usmcaContext}
 
 IMPORTANT DISCLAIMER: All rate data is AI-estimated based on general market knowledge, not live data. Include this disclaimer at the end.
 
