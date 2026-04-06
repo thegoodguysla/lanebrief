@@ -275,7 +275,7 @@ export async function GET(req: Request) {
   // Store new snapshots and build per-user alert lists
   const userAlerts = new Map<
     string,
-    { origin: string; destination: string; equipment: string; oldRate: number | null; newRate: number; deltaPct: number | null; insight: string }[]
+    { origin: string; destination: string; equipment: string; oldRate: number | null; newRate: number; deltaPct: number | null; insight: string; usmcaRisk: "high" | "medium" | null }[]
   >();
 
   for (const lane of lanesWithUsers) {
