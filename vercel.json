@@ -31,6 +31,10 @@
     {
       "path": "/api/cron/refresh-forecasts",
       "schedule": "0 12 * * *"
+    },
+    {
+      "path": "/api/cron/weekly-intelligence-report",
+      "schedule": "0 12 * * 1"
     }
   ]
 }
