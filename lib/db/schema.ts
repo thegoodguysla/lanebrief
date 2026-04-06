@@ -184,3 +184,24 @@ export const laneRateForecasts = pgTable("lane_rate_forecasts", {
 
 export type LaneRateForecast = typeof laneRateForecasts.$inferSelect;
 export type NewLaneRateForecast = typeof laneRateForecasts.$inferInsert;
+
+// Carrier Capacity Heatmap cache
+export const capacityHeatmapCache = pgTable("capacity_heatmap_cache", {
+  id: text("id").primaryKey(),
+  laneId: text("lane_id")
+    .notNull()
+    .references(() => lanes.id, { onDelete: "cascade" }),
+  origin: text("origin").notNull(),
+  destination: text("destination").notNull(),
+  equipment: text("equipment").notNull(),
+  capacityLevel: text("capacity_level").notNull(), // 'tight' | 'moderate' | 'loose'
+  estimatedCarrierCount: integer("estimated_carrier_count").notNull(),
+  reasoning: text("reasoning").notNull(),
+  alternatives: text("alternatives").notNull(), // JSON: [{origin, destination, reason}]
+  generatedAt: timestamp("generated_at").notNull().defaultNow(),
+}, (t) => [
+  index("capacity_heatmap_lane_idx").on(t.laneId),
+]);
+
+export type CapacityHeatmapCache = typeof capacityHeatmapCache.$inferSelect;
+export type NewCapacityHeatmapCache = typeof capacityHeatmapCache.$inferInsert;

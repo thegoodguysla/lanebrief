@@ -131,6 +131,13 @@ type BorderDelay = {
   tariffCategoryFlag: boolean;
 };
 
+type CapacityData = {
+  capacityLevel: "tight" | "moderate" | "loose";
+  estimatedCarrierCount: number;
+  reasoning: string;
+  alternatives: Array<{ origin: string; destination: string; reason: string }>;
+};
+
 export default function DashboardPage() {
   const { user, isLoaded } = useUser();
   const router = useRouter();
@@ -157,6 +164,8 @@ export default function DashboardPage() {
   const [tenderScores, setTenderScores] = useState<Record<string, TenderScore | "loading">>({});
   const [forecasts, setForecasts] = useState<Record<string, ForecastData | "loading" | "insufficient">>({});
   const [borderDelays, setBorderDelays] = useState<Record<string, BorderDelay | "loading">>({});
+  const [capacityData, setCapacityData] = useState<Record<string, CapacityData | "loading">>({});
+  const [expandedCapacityLane, setExpandedCapacityLane] = useState<string | null>(null);
   const avOnly = searchParams.get("avOnly") === "1";
   const isNewUser = searchParams.get("newUser") === "1";
   const [showGettingStarted, setShowGettingStarted] = useState(isNewUser);
@@ -259,6 +268,32 @@ export default function DashboardPage() {
     }
   }, []);
 
+  const fetchCapacityData = useCallback((laneIds: string[]) => {
+    for (const laneId of laneIds) {
+      setCapacityData((prev) => ({ ...prev, [laneId]: "loading" }));
+      fetch(`/api/lanes/${laneId}/capacity-heatmap`)
+        .then((r) => r.json())
+        .then((data: CapacityData & { laneId: string }) => {
+          setCapacityData((prev) => ({
+            ...prev,
+            [laneId]: {
+              capacityLevel: data.capacityLevel,
+              estimatedCarrierCount: data.estimatedCarrierCount,
+              reasoning: data.reasoning,
+              alternatives: data.alternatives,
+            },
+          }));
+        })
+        .catch(() => {
+          setCapacityData((prev) => {
+            const next = { ...prev };
+            delete next[laneId];
+            return next;
+          });
+        });
+    }
+  }, []);
+
   useEffect(() => {
     if (!isLoaded || !user || initialized) return;
 
@@ -286,9 +321,10 @@ export default function DashboardPage() {
         fetchTenderScores(loadedLanes.map((l) => l.id));
         fetchForecasts(loadedLanes.map((l) => l.id));
         fetchBorderDelays(loadedLanes);
+        fetchCapacityData(loadedLanes.map((l) => l.id));
       })
       .catch(() => setInitialized(true));
-  }, [isLoaded, user, initialized, router, fetchAvCoverage, fetchTenderScores, fetchForecasts, fetchBorderDelays]);
+  }, [isLoaded, user, initialized, router, fetchAvCoverage, fetchTenderScores, fetchForecasts, fetchBorderDelays, fetchCapacityData]);
 
   async function loadLanes() {
     const res = await fetch("/api/lanes");
@@ -305,6 +341,8 @@ export default function DashboardPage() {
       if (missingForecasts.length > 0) fetchForecasts(missingForecasts);
       const missingDelays = loadedLanes.filter((l) => !(l.id in borderDelays));
       if (missingDelays.length > 0) fetchBorderDelays(missingDelays);
+      const missingCapacity = loadedLanes.map((l) => l.id).filter((id) => !(id in capacityData));
+      if (missingCapacity.length > 0) fetchCapacityData(missingCapacity);
     }
   }
 
@@ -571,6 +609,8 @@ export default function DashboardPage() {
               const tenderScore = tenderScores[lane.id];
               const forecast = forecasts[lane.id];
               const borderDelay = borderDelays[lane.id];
+              const capacity = capacityData[lane.id];
+              const capacityExpanded = expandedCapacityLane === lane.id;
               return (
                 <div
                   key={lane.id}
@@ -709,6 +749,35 @@ export default function DashboardPage() {
                             🟢 Normal flow
                           </span>
                         )}
+                        {capacity === "loading" && (
+                          <span className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[10px] font-medium text-muted-foreground animate-pulse">
+                            ◌ capacity…
+                          </span>
+                        )}
+                        {capacity && capacity !== "loading" && capacity.capacityLevel === "tight" && (
+                          <span
+                            title={`Tight capacity — est. ${capacity.estimatedCarrierCount} active carriers. ${capacity.reasoning}`}
+                            className="inline-flex items-center gap-1 rounded-full border border-red-400/60 bg-red-50 px-2 py-0.5 text-[10px] font-medium text-red-700 dark:bg-red-950/30 dark:text-red-400 dark:border-red-500/40 cursor-help"
+                          >
+                            🔴 Tight ({capacity.estimatedCarrierCount} carriers)
+                          </span>
+                        )}
+                        {capacity && capacity !== "loading" && capacity.capacityLevel === "moderate" && (
+                          <span
+                            title={`Moderate capacity — est. ${capacity.estimatedCarrierCount} active carriers. ${capacity.reasoning}`}
+                            className="inline-flex items-center gap-1 rounded-full border border-yellow-400/60 bg-yellow-50 px-2 py-0.5 text-[10px] font-medium text-yellow-700 dark:bg-yellow-950/30 dark:text-yellow-500 dark:border-yellow-600/40 cursor-help"
+                          >
+                            🟡 Moderate ({capacity.estimatedCarrierCount} carriers)
+                          </span>
+                        )}
+                        {capacity && capacity !== "loading" && capacity.capacityLevel === "loose" && (
+                          <span
+                            title={`Loose capacity — est. ${capacity.estimatedCarrierCount}+ active carriers. ${capacity.reasoning}`}
+                            className="inline-flex items-center gap-1 rounded-full border border-emerald-300/60 bg-emerald-50/60 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-950/20 dark:text-emerald-500 dark:border-emerald-600/30 cursor-help"
+                          >
+                            🟢 Loose ({capacity.estimatedCarrierCount}+ carriers)
+                          </span>
+                        )}
                       </div>
                     </div>
                     <button
@@ -718,6 +787,30 @@ export default function DashboardPage() {
                       Remove
                     </button>
                   </div>
+
+                  {/* Capacity alternatives panel (expandable, tight lanes only) */}
+                  {capacity && capacity !== "loading" && capacity.capacityLevel === "tight" && capacity.alternatives.length > 0 && (
+                    <div className="space-y-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setExpandedCapacityLane(capacityExpanded ? null : lane.id)}
+                        className="text-xs text-red-700 hover:underline dark:text-red-400"
+                      >
+                        {capacityExpanded ? "Hide" : "Show"} {capacity.alternatives.length} alternative lane{capacity.alternatives.length > 1 ? "s" : ""} with more capacity
+                      </button>
+                      {capacityExpanded && (
+                        <div className="rounded-md border border-red-200/60 bg-red-50/40 p-2.5 space-y-1.5 dark:border-red-800/30 dark:bg-red-950/10">
+                          <p className="text-[10px] font-medium text-red-700 uppercase tracking-wide dark:text-red-400">Capacity alternatives</p>
+                          {capacity.alternatives.map((alt, i) => (
+                            <div key={i} className="flex items-start gap-2">
+                              <span className="text-[10px] font-medium text-foreground shrink-0">{alt.origin} → {alt.destination}</span>
+                              <span className="text-[10px] text-muted-foreground">{alt.reason}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   {/* AV carrier cards (expandable) */}
                   {avData !== "loading" && avData && avData.coverage !== "NO" && avData.carriers.length > 0 && (

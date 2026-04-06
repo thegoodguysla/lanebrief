@@ -1,5 +1,5 @@
 import { getDb } from "@/lib/db";
-import { users, lanes, rateSnapshots, tenderAcceptanceCache } from "@/lib/db/schema";
+import { users, lanes, rateSnapshots, tenderAcceptanceCache, capacityHeatmapCache } from "@/lib/db/schema";
 import { eq, and, desc, inArray } from "drizzle-orm";
 import { generateText } from "ai";
 import { Resend } from "resend";
@@ -92,6 +92,14 @@ type AtRiskLane = {
   reasoning: string;
 };
 
+type TightCapacityLane = {
+  origin: string;
+  destination: string;
+  equipment: string;
+  estimatedCarrierCount: number;
+  reasoning: string;
+};
+
 type DelayOutlaneItem = {
   origin: string;
   destination: string;
@@ -106,6 +114,7 @@ function buildDigestEmailHtml(
   alerts: { origin: string; destination: string; equipment: string; oldRate: number | null; newRate: number; deltaPct: number | null; insight: string; usmcaRisk: "high" | "medium" | null }[],
   atRiskLanes: AtRiskLane[],
   delayOutlook: DelayOutlaneItem[],
+  tightCapacityLanes: TightCapacityLane[],
 ): string {
   const usmcaFlagged = alerts.filter((a) => a.usmcaRisk !== null);
   const usmcaSection = usmcaFlagged.length > 0
@@ -222,6 +231,39 @@ function buildDigestEmailHtml(
       </tbody>
     </table>
     <p style="margin: 6px 0 0 0; font-size: 11px; color: #A0AEC0;">Lock in carrier rates proactively on at-risk lanes to avoid tender rejection delays.</p>
+  </div>` : ""}
+
+  ${tightCapacityLanes.length > 0 ? `
+  <div style="margin-top: 24px;">
+    <p style="margin: 0 0 10px 0; font-size: 12px; font-weight: bold; color: #6B7B8D; text-transform: uppercase; letter-spacing: 0.05em;">
+      🔴 Carrier Capacity Heatmap — Tightest Lanes
+    </p>
+    <table cellpadding="0" cellspacing="0" border="0" style="width: 100%; border-collapse: collapse; border: 1px solid #FECACA; border-radius: 8px; overflow: hidden;">
+      <thead>
+        <tr style="background-color: #FFF5F5;">
+          <th style="padding: 8px 14px; text-align: left; font-size: 11px; font-weight: bold; color: #991B1B; text-transform: uppercase;">Lane</th>
+          <th style="padding: 8px 14px; text-align: right; font-size: 11px; font-weight: bold; color: #991B1B; text-transform: uppercase;">Active Carriers</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${tightCapacityLanes.map((l) => {
+          const eq = l.equipment.replace("_", " ");
+          return `
+        <tr>
+          <td style="padding: 10px 14px; border-top: 1px solid #FECACA;">
+            <strong style="color: #0D1F3C; font-size: 13px;">${l.origin} → ${l.destination}</strong><br/>
+            <span style="font-size: 11px; color: #6B7B8D; text-transform: capitalize;">${eq}</span><br/>
+            <span style="font-size: 11px; color: #4A5568; font-style: italic;">${l.reasoning}</span>
+          </td>
+          <td style="padding: 10px 14px; border-top: 1px solid #FECACA; text-align: right; vertical-align: top;">
+            <span style="font-size: 15px; font-weight: bold; color: #DC2626;">~${l.estimatedCarrierCount}</span><br/>
+            <span style="font-size: 11px; color: #DC2626; text-transform: uppercase;">Tight</span>
+          </td>
+        </tr>`;
+        }).join("")}
+      </tbody>
+    </table>
+    <p style="margin: 6px 0 0 0; font-size: 11px; color: #A0AEC0;">Lock in carriers proactively on tight lanes — rejection risk increases when fewer alternatives are available. <a href="https://lanebrief.com/dashboard" style="color: #A0AEC0;">View alternatives →</a></p>
   </div>` : ""}
 
   ${delayOutlook.filter((d) => d.riskLevel !== "normal").length > 0 ? `
@@ -420,6 +462,20 @@ export async function GET(req: Request) {
     }
   }
 
+  // Load capacity heatmap cache for all user lanes (most recent per lane)
+  const capacityCacheRows = laneIds.length > 0
+    ? await db
+        .select()
+        .from(capacityHeatmapCache)
+        .where(inArray(capacityHeatmapCache.laneId, laneIds))
+        .orderBy(desc(capacityHeatmapCache.generatedAt))
+    : [];
+
+  const capacityByLane = new Map<string, typeof capacityCacheRows[0]>();
+  for (const row of capacityCacheRows) {
+    if (!capacityByLane.has(row.laneId)) capacityByLane.set(row.laneId, row);
+  }
+
   // Load tender acceptance cache for all user lanes (most recent per lane)
   const tenderCacheRows = laneIds.length > 0
     ? await db
@@ -473,8 +529,28 @@ export async function GET(req: Request) {
 
     const atRisk = userAtRiskLanes.get(userId) ?? [];
 
+    // Per-user lanes (used for both capacity and delay sections)
+    const userLanesForDigest = lanesWithUsers.filter((l) => l.userId === userId);
+
+    // Build top-3 tightest capacity lanes for this user
+    const tightCapacityLanes: TightCapacityLane[] = [];
+    for (const l of userLanesForDigest) {
+      const cap = capacityByLane.get(l.laneId);
+      if (cap && cap.capacityLevel === "tight") {
+        tightCapacityLanes.push({
+          origin: l.origin,
+          destination: l.destination,
+          equipment: l.equipment,
+          estimatedCarrierCount: cap.estimatedCarrierCount,
+          reasoning: cap.reasoning,
+        });
+      }
+    }
+    tightCapacityLanes.sort((a, b) => a.estimatedCarrierCount - b.estimatedCarrierCount);
+    const topTightLanes = tightCapacityLanes.slice(0, 3);
+
     // Build crossing delay outlook for this user's US-MX lanes
-    const userLanesForDelay = lanesWithUsers.filter((l) => l.userId === userId);
+    const userLanesForDelay = userLanesForDigest;
     const delayOutlook: DelayOutlaneItem[] = [];
     for (const l of userLanesForDelay) {
       const crossing = detectUSMXCrossing({ origin: l.origin, destination: l.destination });
@@ -499,7 +575,7 @@ export async function GET(req: Request) {
         replyTo: "intel@lanebrief.com",
         to: email,
         subject,
-        html: buildDigestEmailHtml(alerts, atRisk, delayOutlook),
+        html: buildDigestEmailHtml(alerts, atRisk, delayOutlook, topTightLanes),
       });
       emailsSent++;
     } catch (err) {
