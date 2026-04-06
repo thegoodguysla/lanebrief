@@ -529,7 +529,15 @@ export default function DashboardPage() {
           <Link href="/" className="font-semibold tracking-tight">
             LaneBrief
           </Link>
-          <UserButton />
+          <div className="flex items-center gap-3">
+            <Link
+              href="/calculate"
+              className="text-sm text-muted-foreground hover:text-foreground transition-colors hidden sm:block"
+            >
+              Profit Calculator
+            </Link>
+            <UserButton />
+          </div>
         </div>
       </nav>
 
