@@ -115,6 +115,14 @@ type TenderScore = {
   factors: string[];
 };
 
+type ForecastData = {
+  direction: "up" | "down" | "flat";
+  pctChange: number;
+  confidence: "high" | "medium" | "low";
+  reasoning: string;
+  horizon: "7d";
+};
+
 export default function DashboardPage() {
   const { user, isLoaded } = useUser();
   const router = useRouter();
@@ -139,6 +147,7 @@ export default function DashboardPage() {
   const [avCoverage, setAvCoverage] = useState<Record<string, AvCoverageData | "loading">>({});
   const [expandedAvLane, setExpandedAvLane] = useState<string | null>(null);
   const [tenderScores, setTenderScores] = useState<Record<string, TenderScore | "loading">>({});
+  const [forecasts, setForecasts] = useState<Record<string, ForecastData | "loading" | "insufficient">>({});
   const avOnly = searchParams.get("avOnly") === "1";
   const isNewUser = searchParams.get("newUser") === "1";
   const [showGettingStarted, setShowGettingStarted] = useState(isNewUser);
@@ -156,6 +165,28 @@ export default function DashboardPage() {
         })
         .catch(() => {
           setAvCoverage((prev) => ({ ...prev, [laneId]: { coverage: "NO", carriers: [] } }));
+        });
+    }
+  }, []);
+
+  const fetchForecasts = useCallback((laneIds: string[]) => {
+    for (const laneId of laneIds) {
+      setForecasts((prev) => ({ ...prev, [laneId]: "loading" }));
+      fetch(`/api/lanes/${laneId}/forecast`)
+        .then((r) => r.json())
+        .then((data: { laneId: string; forecast: ForecastData | null; insufficientData: boolean }) => {
+          if (data.insufficientData || !data.forecast) {
+            setForecasts((prev) => ({ ...prev, [laneId]: "insufficient" }));
+          } else {
+            setForecasts((prev) => ({ ...prev, [laneId]: data.forecast as ForecastData }));
+          }
+        })
+        .catch(() => {
+          setForecasts((prev) => {
+            const next = { ...prev };
+            delete next[laneId];
+            return next;
+          });
         });
     }
   }, []);
@@ -215,9 +246,10 @@ export default function DashboardPage() {
         setInitialized(true);
         fetchAvCoverage(loadedLanes.map((l) => l.id));
         fetchTenderScores(loadedLanes.map((l) => l.id));
+        fetchForecasts(loadedLanes.map((l) => l.id));
       })
       .catch(() => setInitialized(true));
-  }, [isLoaded, user, initialized, router, fetchAvCoverage, fetchTenderScores]);
+  }, [isLoaded, user, initialized, router, fetchAvCoverage, fetchTenderScores, fetchForecasts]);
 
   async function loadLanes() {
     const res = await fetch("/api/lanes");
@@ -230,6 +262,8 @@ export default function DashboardPage() {
       if (missing.length > 0) fetchAvCoverage(missing);
       const missingScores = loadedLanes.map((l) => l.id).filter((id) => !(id in tenderScores));
       if (missingScores.length > 0) fetchTenderScores(missingScores);
+      const missingForecasts = loadedLanes.map((l) => l.id).filter((id) => !(id in forecasts));
+      if (missingForecasts.length > 0) fetchForecasts(missingForecasts);
     }
   }
 
@@ -494,6 +528,7 @@ export default function DashboardPage() {
               const tariffFlag = isTariffImpactedLane(lane);
               const usmcaFlag = getUSMCAFlag(lane);
               const tenderScore = tenderScores[lane.id];
+              const forecast = forecasts[lane.id];
               return (
                 <div
                   key={lane.id}
@@ -572,6 +607,35 @@ export default function DashboardPage() {
                             className="inline-flex items-center gap-1 rounded-full border border-emerald-300/60 bg-emerald-50/60 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-950/20 dark:text-emerald-500 dark:border-emerald-600/30 cursor-help"
                           >
                             ✓ {tenderScore.estimatedAcceptancePct}% acceptance
+                          </span>
+                        )}
+                        {forecast === "loading" && (
+                          <span className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[10px] font-medium text-muted-foreground animate-pulse">
+                            ◌ forecast…
+                          </span>
+                        )}
+                        {forecast && forecast !== "loading" && forecast !== "insufficient" && forecast.direction === "up" && (
+                          <span
+                            title={`7-day forecast: rates expected UP ${Math.abs(forecast.pctChange).toFixed(1)}% · ${forecast.confidence} confidence · ${forecast.reasoning}`}
+                            className="inline-flex items-center gap-1 rounded-full border border-red-300/60 bg-red-50/60 px-2 py-0.5 text-[10px] font-medium text-red-700 dark:bg-red-950/20 dark:text-red-400 dark:border-red-600/30 cursor-help"
+                          >
+                            ▲ +{Math.abs(forecast.pctChange).toFixed(1)}% 7d
+                          </span>
+                        )}
+                        {forecast && forecast !== "loading" && forecast !== "insufficient" && forecast.direction === "down" && (
+                          <span
+                            title={`7-day forecast: rates expected DOWN ${Math.abs(forecast.pctChange).toFixed(1)}% · ${forecast.confidence} confidence · ${forecast.reasoning}`}
+                            className="inline-flex items-center gap-1 rounded-full border border-emerald-300/60 bg-emerald-50/60 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-950/20 dark:text-emerald-500 dark:border-emerald-600/30 cursor-help"
+                          >
+                            ▼ -{Math.abs(forecast.pctChange).toFixed(1)}% 7d
+                          </span>
+                        )}
+                        {forecast && forecast !== "loading" && forecast !== "insufficient" && forecast.direction === "flat" && (
+                          <span
+                            title={`7-day forecast: rates expected FLAT · ${forecast.confidence} confidence · ${forecast.reasoning}`}
+                            className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/40 px-2 py-0.5 text-[10px] font-medium text-muted-foreground cursor-help"
+                          >
+                            → flat 7d
                           </span>
                         )}
                       </div>

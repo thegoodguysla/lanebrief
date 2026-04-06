@@ -27,6 +27,10 @@
     {
       "path": "/api/cron/demo-reminder",
       "schedule": "0 14 * * *"
+    },
+    {
+      "path": "/api/cron/refresh-forecasts",
+      "schedule": "0 12 * * *"
     }
   ]
 }

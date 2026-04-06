@@ -161,3 +161,26 @@ export type DemoBooking = typeof demoBookings.$inferSelect;
 export type NewDemoBooking = typeof demoBookings.$inferInsert;
 export type TenderAcceptanceCache = typeof tenderAcceptanceCache.$inferSelect;
 export type NewTenderAcceptanceCache = typeof tenderAcceptanceCache.$inferInsert;
+
+// 7-Day Lane Rate Forecast cache
+export const laneRateForecasts = pgTable("lane_rate_forecasts", {
+  id: text("id").primaryKey(),
+  laneId: text("lane_id")
+    .notNull()
+    .references(() => lanes.id, { onDelete: "cascade" }),
+  origin: text("origin").notNull(),
+  destination: text("destination").notNull(),
+  equipment: text("equipment").notNull(),
+  direction: text("direction").notNull(), // 'up' | 'down' | 'flat'
+  pctChange: real("pct_change").notNull(), // estimated % rate change over 7 days
+  confidence: text("confidence").notNull(), // 'high' | 'medium' | 'low'
+  reasoning: text("reasoning").notNull(),
+  generatedAt: timestamp("generated_at").notNull().defaultNow(),
+  expiresAt: timestamp("expires_at").notNull(),
+}, (t) => [
+  index("lane_rate_forecasts_lane_idx").on(t.laneId),
+  index("lane_rate_forecasts_expires_idx").on(t.expiresAt),
+]);
+
+export type LaneRateForecast = typeof laneRateForecasts.$inferSelect;
+export type NewLaneRateForecast = typeof laneRateForecasts.$inferInsert;
