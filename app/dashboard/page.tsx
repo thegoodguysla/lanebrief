@@ -108,6 +108,13 @@ type Brief = {
   generatedAt: string;
 };
 
+type TenderScore = {
+  riskLevel: "low" | "medium" | "high";
+  estimatedAcceptancePct: number;
+  reasoning: string;
+  factors: string[];
+};
+
 export default function DashboardPage() {
   const { user, isLoaded } = useUser();
   const router = useRouter();
@@ -131,6 +138,7 @@ export default function DashboardPage() {
   const [savingThresholdFor, setSavingThresholdFor] = useState<string | null>(null);
   const [avCoverage, setAvCoverage] = useState<Record<string, AvCoverageData | "loading">>({});
   const [expandedAvLane, setExpandedAvLane] = useState<string | null>(null);
+  const [tenderScores, setTenderScores] = useState<Record<string, TenderScore | "loading">>({});
   const avOnly = searchParams.get("avOnly") === "1";
   const isNewUser = searchParams.get("newUser") === "1";
   const [showGettingStarted, setShowGettingStarted] = useState(isNewUser);
@@ -148,6 +156,36 @@ export default function DashboardPage() {
         })
         .catch(() => {
           setAvCoverage((prev) => ({ ...prev, [laneId]: { coverage: "NO", carriers: [] } }));
+        });
+    }
+  }, []);
+
+  const fetchTenderScores = useCallback((laneIds: string[]) => {
+    for (const laneId of laneIds) {
+      setTenderScores((prev) => ({ ...prev, [laneId]: "loading" }));
+      fetch("/api/tender-acceptance", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ laneId }),
+      })
+        .then((r) => r.json())
+        .then((data: TenderScore & { laneId: string }) => {
+          setTenderScores((prev) => ({
+            ...prev,
+            [laneId]: {
+              riskLevel: data.riskLevel,
+              estimatedAcceptancePct: data.estimatedAcceptancePct,
+              reasoning: data.reasoning,
+              factors: data.factors,
+            },
+          }));
+        })
+        .catch(() => {
+          setTenderScores((prev) => {
+            const next = { ...prev };
+            delete next[laneId];
+            return next;
+          });
         });
     }
   }, []);
@@ -176,9 +214,10 @@ export default function DashboardPage() {
         setBriefs(briefsData.briefs ?? []);
         setInitialized(true);
         fetchAvCoverage(loadedLanes.map((l) => l.id));
+        fetchTenderScores(loadedLanes.map((l) => l.id));
       })
       .catch(() => setInitialized(true));
-  }, [isLoaded, user, initialized, router, fetchAvCoverage]);
+  }, [isLoaded, user, initialized, router, fetchAvCoverage, fetchTenderScores]);
 
   async function loadLanes() {
     const res = await fetch("/api/lanes");
@@ -186,9 +225,11 @@ export default function DashboardPage() {
       const data = await res.json();
       const loadedLanes: Lane[] = data.lanes ?? [];
       setLanes(loadedLanes);
-      // Fetch coverage for any lanes not yet loaded
+      // Fetch coverage and tender scores for any lanes not yet loaded
       const missing = loadedLanes.map((l) => l.id).filter((id) => !(id in avCoverage));
       if (missing.length > 0) fetchAvCoverage(missing);
+      const missingScores = loadedLanes.map((l) => l.id).filter((id) => !(id in tenderScores));
+      if (missingScores.length > 0) fetchTenderScores(missingScores);
     }
   }
 
@@ -452,6 +493,7 @@ export default function DashboardPage() {
               const avExpanded = expandedAvLane === lane.id;
               const tariffFlag = isTariffImpactedLane(lane);
               const usmcaFlag = getUSMCAFlag(lane);
+              const tenderScore = tenderScores[lane.id];
               return (
                 <div
                   key={lane.id}
@@ -503,6 +545,35 @@ export default function DashboardPage() {
                           coverage={avData === "loading" ? undefined : avData?.coverage}
                           loading={avData === "loading"}
                         />
+                        {tenderScore === "loading" && (
+                          <span className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[10px] font-medium text-muted-foreground animate-pulse">
+                            ◌ acceptance…
+                          </span>
+                        )}
+                        {tenderScore && tenderScore !== "loading" && tenderScore.riskLevel === "high" && (
+                          <span
+                            title={`High tender risk — est. ${tenderScore.estimatedAcceptancePct}% first-tender acceptance. ${tenderScore.reasoning}`}
+                            className="inline-flex items-center gap-1 rounded-full border border-red-400/60 bg-red-50 px-2 py-0.5 text-[10px] font-medium text-red-700 dark:bg-red-950/30 dark:text-red-400 dark:border-red-500/40 cursor-help"
+                          >
+                            ✕ {tenderScore.estimatedAcceptancePct}% acceptance
+                          </span>
+                        )}
+                        {tenderScore && tenderScore !== "loading" && tenderScore.riskLevel === "medium" && (
+                          <span
+                            title={`Medium tender risk — est. ${tenderScore.estimatedAcceptancePct}% first-tender acceptance. ${tenderScore.reasoning}`}
+                            className="inline-flex items-center gap-1 rounded-full border border-orange-300/60 bg-orange-50/60 px-2 py-0.5 text-[10px] font-medium text-orange-700 dark:bg-orange-950/20 dark:text-orange-500 dark:border-orange-600/30 cursor-help"
+                          >
+                            ◑ {tenderScore.estimatedAcceptancePct}% acceptance
+                          </span>
+                        )}
+                        {tenderScore && tenderScore !== "loading" && tenderScore.riskLevel === "low" && (
+                          <span
+                            title={`Low tender risk — est. ${tenderScore.estimatedAcceptancePct}% first-tender acceptance. ${tenderScore.reasoning}`}
+                            className="inline-flex items-center gap-1 rounded-full border border-emerald-300/60 bg-emerald-50/60 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-950/20 dark:text-emerald-500 dark:border-emerald-600/30 cursor-help"
+                          >
+                            ✓ {tenderScore.estimatedAcceptancePct}% acceptance
+                          </span>
+                        )}
                       </div>
                     </div>
                     <button

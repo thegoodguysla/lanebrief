@@ -1,5 +1,5 @@
 import { getDb } from "@/lib/db";
-import { users, lanes, rateSnapshots } from "@/lib/db/schema";
+import { users, lanes, rateSnapshots, tenderAcceptanceCache } from "@/lib/db/schema";
 import { eq, and, desc, inArray } from "drizzle-orm";
 import { generateText } from "ai";
 import { Resend } from "resend";
@@ -82,8 +82,18 @@ Respond with ONLY a JSON object (no markdown):
   };
 }
 
+type AtRiskLane = {
+  origin: string;
+  destination: string;
+  equipment: string;
+  estimatedAcceptancePct: number;
+  riskLevel: "low" | "medium" | "high";
+  reasoning: string;
+};
+
 function buildDigestEmailHtml(
-  alerts: { origin: string; destination: string; equipment: string; oldRate: number | null; newRate: number; deltaPct: number | null; insight: string; usmcaRisk: "high" | "medium" | null }[]
+  alerts: { origin: string; destination: string; equipment: string; oldRate: number | null; newRate: number; deltaPct: number | null; insight: string; usmcaRisk: "high" | "medium" | null }[],
+  atRiskLanes: AtRiskLane[]
 ): string {
   const usmcaFlagged = alerts.filter((a) => a.usmcaRisk !== null);
   const usmcaSection = usmcaFlagged.length > 0
@@ -167,6 +177,40 @@ function buildDigestEmailHtml(
       <strong>Note:</strong> All rates are AI-estimated based on general market knowledge and seasonal patterns. Not a substitute for live market data.
     </p>
   </div>
+
+  ${atRiskLanes.length > 0 ? `
+  <div style="margin-top: 24px;">
+    <p style="margin: 0 0 10px 0; font-size: 12px; font-weight: bold; color: #6B7B8D; text-transform: uppercase; letter-spacing: 0.05em;">
+      ⚠ Tender Risk — Lowest Acceptance Lanes
+    </p>
+    <table cellpadding="0" cellspacing="0" border="0" style="width: 100%; border-collapse: collapse; border: 1px solid #FED7AA; border-radius: 8px; overflow: hidden;">
+      <thead>
+        <tr style="background-color: #FFF7ED;">
+          <th style="padding: 8px 14px; text-align: left; font-size: 11px; font-weight: bold; color: #9A3412; text-transform: uppercase;">Lane</th>
+          <th style="padding: 8px 14px; text-align: right; font-size: 11px; font-weight: bold; color: #9A3412; text-transform: uppercase;">Est. Acceptance</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${atRiskLanes.map((l) => {
+          const riskColor = l.riskLevel === "high" ? "#DC2626" : "#EA580C";
+          const eq = l.equipment.replace("_", " ");
+          return `
+        <tr>
+          <td style="padding: 10px 14px; border-top: 1px solid #FED7AA;">
+            <strong style="color: #0D1F3C; font-size: 13px;">${l.origin} → ${l.destination}</strong><br/>
+            <span style="font-size: 11px; color: #6B7B8D; text-transform: capitalize;">${eq}</span><br/>
+            <span style="font-size: 11px; color: #4A5568; font-style: italic;">${l.reasoning}</span>
+          </td>
+          <td style="padding: 10px 14px; border-top: 1px solid #FED7AA; text-align: right; vertical-align: top;">
+            <span style="font-size: 15px; font-weight: bold; color: ${riskColor};">${l.estimatedAcceptancePct}%</span><br/>
+            <span style="font-size: 11px; color: ${riskColor}; text-transform: uppercase;">${l.riskLevel} risk</span>
+          </td>
+        </tr>`;
+        }).join("")}
+      </tbody>
+    </table>
+    <p style="margin: 6px 0 0 0; font-size: 11px; color: #A0AEC0;">Lock in carrier rates proactively on at-risk lanes to avoid tender rejection delays.</p>
+  </div>` : ""}
 
   <div style="margin-top: 20px; text-align: center;">
     <a href="https://lanebrief.com/dashboard" style="display: inline-block; background-color: #00C2A8; color: #FFFFFF; font-size: 14px; font-weight: bold; text-decoration: none; padding: 12px 28px; border-radius: 6px;">
@@ -328,6 +372,44 @@ export async function GET(req: Request) {
     }
   }
 
+  // Load tender acceptance cache for all user lanes (most recent per lane)
+  const tenderCacheRows = laneIds.length > 0
+    ? await db
+        .select()
+        .from(tenderAcceptanceCache)
+        .where(inArray(tenderAcceptanceCache.laneId, laneIds))
+        .orderBy(desc(tenderAcceptanceCache.generatedAt))
+    : [];
+
+  const tenderByLane = new Map<string, typeof tenderCacheRows[0]>();
+  for (const row of tenderCacheRows) {
+    if (!tenderByLane.has(row.laneId)) tenderByLane.set(row.laneId, row);
+  }
+
+  // Build per-user at-risk lanes (high + medium risk, sorted by acceptance pct asc, top 3)
+  const userAtRiskLanes = new Map<string, AtRiskLane[]>();
+  for (const lane of lanesWithUsers) {
+    const score = tenderByLane.get(lane.laneId);
+    if (!score || score.riskLevel === "low") continue;
+    const bucket = userAtRiskLanes.get(lane.userId) ?? [];
+    bucket.push({
+      origin: lane.origin,
+      destination: lane.destination,
+      equipment: lane.equipment,
+      estimatedAcceptancePct: score.estimatedAcceptancePct,
+      riskLevel: score.riskLevel as "low" | "medium" | "high",
+      reasoning: score.reasoning,
+    });
+    userAtRiskLanes.set(lane.userId, bucket);
+  }
+  // Sort by lowest acceptance first, cap at 3
+  for (const [userId, bucket] of userAtRiskLanes) {
+    userAtRiskLanes.set(
+      userId,
+      bucket.sort((a, b) => a.estimatedAcceptancePct - b.estimatedAcceptancePct).slice(0, 3)
+    );
+  }
+
   // Send digest emails
   let emailsSent = 0;
   const resend = getResend();
@@ -341,13 +423,15 @@ export async function GET(req: Request) {
       ? `⚡ Lane alert: ${alerts[0].origin} → ${alerts[0].destination} moved ${Math.abs(alerts[0].deltaPct ?? 0).toFixed(1)}%`
       : `Your weekly LaneBrief digest`;
 
+    const atRisk = userAtRiskLanes.get(userId) ?? [];
+
     try {
       await resend.emails.send({
         from: FROM,
         replyTo: "intel@lanebrief.com",
         to: email,
         subject,
-        html: buildDigestEmailHtml(alerts),
+        html: buildDigestEmailHtml(alerts, atRisk),
       });
       emailsSent++;
     } catch (err) {

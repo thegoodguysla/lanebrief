@@ -139,5 +139,25 @@ export type AutonomousFleetProfile = typeof autonomousFleetProfiles.$inferSelect
 export type NewAutonomousFleetProfile = typeof autonomousFleetProfiles.$inferInsert;
 export type AutonomousCorridorCoverage = typeof autonomousCorridorCoverage.$inferSelect;
 export type NewAutonomousCorridorCoverage = typeof autonomousCorridorCoverage.$inferInsert;
+// Tender Acceptance Predictor cache
+export const tenderAcceptanceCache = pgTable("tender_acceptance_cache", {
+  id: text("id").primaryKey(),
+  laneId: text("lane_id")
+    .notNull()
+    .references(() => lanes.id, { onDelete: "cascade" }),
+  origin: text("origin").notNull(),
+  destination: text("destination").notNull(),
+  equipment: text("equipment").notNull(),
+  riskLevel: text("risk_level").notNull(), // 'low' | 'medium' | 'high'
+  estimatedAcceptancePct: integer("estimated_acceptance_pct").notNull(), // 0–100
+  reasoning: text("reasoning").notNull(),
+  factors: text("factors").notNull(), // JSON-serialized string[]
+  generatedAt: timestamp("generated_at").notNull().defaultNow(),
+}, (t) => [
+  index("tender_acceptance_lane_idx").on(t.laneId),
+]);
+
 export type DemoBooking = typeof demoBookings.$inferSelect;
 export type NewDemoBooking = typeof demoBookings.$inferInsert;
+export type TenderAcceptanceCache = typeof tenderAcceptanceCache.$inferSelect;
+export type NewTenderAcceptanceCache = typeof tenderAcceptanceCache.$inferInsert;

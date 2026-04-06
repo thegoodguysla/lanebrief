@@ -36,6 +36,13 @@
       "when": 1743984001000,
       "tag": "0005_alert_mode",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1744070400000,
+      "tag": "0006_tender_acceptance_cache",
+      "breakpoints": true
     }
   ]
 }
