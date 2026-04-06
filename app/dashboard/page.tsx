@@ -7,8 +7,9 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { AutonomousCoverageBadge } from "@/components/autonomous-coverage-badge";
-import { AutonomousCarrierCard, type AutonomousCarrierData } from "@/components/autonomous-carrier-card";
+import { AutonomousCarrierCard, type AutonomousCarrierData, type CarrierRiskData } from "@/components/autonomous-carrier-card";
 import { AutonomousCorridorMap } from "@/components/autonomous-corridor-map";
+import { RoiDashboard } from "@/components/roi-dashboard";
 import Link from "next/link";
 
 // Detect if a lane crosses the US-MX or US-CA border for tariff impact flagging
@@ -166,9 +167,42 @@ export default function DashboardPage() {
   const [borderDelays, setBorderDelays] = useState<Record<string, BorderDelay | "loading">>({});
   const [capacityData, setCapacityData] = useState<Record<string, CapacityData | "loading">>({});
   const [expandedCapacityLane, setExpandedCapacityLane] = useState<string | null>(null);
+  const [carrierRiskScores, setCarrierRiskScores] = useState<Record<string, CarrierRiskData | "loading">>({});
+  const [highRiskWarning, setHighRiskWarning] = useState<{ carrier: AutonomousCarrierData; riskData: CarrierRiskData } | null>(null);
   const avOnly = searchParams.get("avOnly") === "1";
   const isNewUser = searchParams.get("newUser") === "1";
   const [showGettingStarted, setShowGettingStarted] = useState(isNewUser);
+  const [activeTab, setActiveTab] = useState<"lanes" | "roi">("lanes");
+
+  const fetchCarrierRiskScores = useCallback((carrierIds: string[]) => {
+    for (const carrierId of carrierIds) {
+      setCarrierRiskScores((prev) => {
+        if (carrierId in prev) return prev;
+        // Kick off the fetch
+        fetch(`/api/carriers/${carrierId}/risk-score`)
+          .then((r) => r.json())
+          .then((data: CarrierRiskData & { carrierId: string }) => {
+            setCarrierRiskScores((p) => ({
+              ...p,
+              [carrierId]: {
+                score: data.score,
+                tier: data.tier,
+                signals: data.signals,
+                reasoning: data.reasoning,
+              },
+            }));
+          })
+          .catch(() => {
+            setCarrierRiskScores((p) => {
+              const next = { ...p };
+              delete next[carrierId];
+              return next;
+            });
+          });
+        return { ...prev, [carrierId]: "loading" };
+      });
+    }
+  }, []);
 
   const fetchAvCoverage = useCallback((laneIds: string[]) => {
     for (const laneId of laneIds) {
@@ -176,16 +210,20 @@ export default function DashboardPage() {
       fetch(`/api/lanes/${laneId}/autonomous-coverage`)
         .then((r) => r.json())
         .then((data) => {
+          const loadedCarriers = data.carriers ?? [];
           setAvCoverage((prev) => ({
             ...prev,
-            [laneId]: { coverage: data.coverage, carriers: data.carriers ?? [] },
+            [laneId]: { coverage: data.coverage, carriers: loadedCarriers },
           }));
+          if (loadedCarriers.length > 0) {
+            fetchCarrierRiskScores(loadedCarriers.map((c: AutonomousCarrierData) => c.id));
+          }
         })
         .catch(() => {
           setAvCoverage((prev) => ({ ...prev, [laneId]: { coverage: "NO", carriers: [] } }));
         });
     }
-  }, []);
+  }, [fetchCarrierRiskScores]);
 
   const fetchForecasts = useCallback((laneIds: string[]) => {
     for (const laneId of laneIds) {
@@ -573,8 +611,35 @@ export default function DashboardPage() {
           </div>
         </div>
 
+        {/* Tab bar */}
+        <div className="flex gap-0.5 rounded-lg border border-border bg-muted/40 p-0.5 w-fit">
+          <button
+            onClick={() => setActiveTab("lanes")}
+            className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${
+              activeTab === "lanes"
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            My Lanes
+          </button>
+          <button
+            onClick={() => setActiveTab("roi")}
+            className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${
+              activeTab === "roi"
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            My ROI
+          </button>
+        </div>
+
+        {/* ROI Dashboard tab */}
+        {activeTab === "roi" && <RoiDashboard />}
+
         {/* Lane cards */}
-        <section className="space-y-4">
+        {activeTab === "lanes" && <section className="space-y-4">
           <div className="flex items-center justify-between gap-4 flex-wrap">
             <h2 className="text-sm font-medium uppercase tracking-wider text-muted-foreground">
               My Lanes ({lanes.length}/5)
@@ -824,13 +889,35 @@ export default function DashboardPage() {
                       </button>
                       {avExpanded && (
                         <div className="space-y-2">
-                          {avData.carriers.map((carrier) => (
-                            <AutonomousCarrierCard
-                              key={carrier.id}
-                              carrier={carrier}
-                              corridors={carrier.corridors}
-                            />
-                          ))}
+                          {avData.carriers.map((carrier) => {
+                            const riskData = carrierRiskScores[carrier.id];
+                            return (
+                              <div key={carrier.id}>
+                                <AutonomousCarrierCard
+                                  carrier={carrier}
+                                  corridors={carrier.corridors}
+                                  riskData={riskData ?? null}
+                                />
+                                {riskData && riskData !== "loading" && riskData.tier === "high" && (
+                                  <div className="mt-1.5 rounded-md border border-red-300/60 bg-red-50 px-3 py-2 dark:border-red-800/40 dark:bg-red-950/20">
+                                    <p className="text-xs font-medium text-red-700 dark:text-red-400">
+                                      ⚠ High payment risk — verify before booking
+                                    </p>
+                                    <p className="text-[11px] text-red-600/80 dark:text-red-400/70 mt-0.5">
+                                      {riskData.reasoning}
+                                    </p>
+                                    <button
+                                      type="button"
+                                      onClick={() => setHighRiskWarning({ carrier, riskData })}
+                                      className="mt-1.5 text-[11px] text-red-700 underline hover:no-underline dark:text-red-400"
+                                    >
+                                      View risk details
+                                    </button>
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })}
                         </div>
                       )}
                     </div>
@@ -959,10 +1046,10 @@ export default function DashboardPage() {
             </form>
           )}
           {error && <p className="text-sm text-destructive">{error}</p>}
-        </section>
+        </section>}
 
         {/* Brief viewer */}
-        {selectedBrief && (
+        {activeTab === "lanes" && selectedBrief && (
           <section className="space-y-3">
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-medium uppercase tracking-wider text-muted-foreground">
@@ -984,7 +1071,7 @@ export default function DashboardPage() {
         )}
 
         {/* Brief history */}
-        {briefs.length > 0 && (
+        {activeTab === "lanes" && briefs.length > 0 && (
           <section className="space-y-3">
             <h2 className="text-sm font-medium uppercase tracking-wider text-muted-foreground">
               Brief History
@@ -1011,7 +1098,7 @@ export default function DashboardPage() {
           </section>
         )}
         {/* Autonomous corridor coverage map (beta) */}
-        {autonomousBeta && (
+        {activeTab === "lanes" && autonomousBeta && (
           <section className="space-y-3">
             <div>
               <h2 className="text-sm font-medium uppercase tracking-wider text-muted-foreground">
@@ -1025,6 +1112,58 @@ export default function DashboardPage() {
           </section>
         )}
       </main>
+
+      {/* High-risk carrier warning modal */}
+      {highRiskWarning && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm px-4"
+          onClick={() => setHighRiskWarning(null)}
+        >
+          <div
+            className="w-full max-w-md rounded-xl border border-red-300 bg-background p-6 shadow-xl space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start gap-3">
+              <span className="text-2xl shrink-0">⚠️</span>
+              <div>
+                <h2 className="font-semibold text-sm text-red-700 dark:text-red-400">
+                  High Payment Risk — {highRiskWarning.carrier.name}
+                </h2>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Risk score: {highRiskWarning.riskData.score}/100
+                </p>
+              </div>
+            </div>
+            <p className="text-sm text-foreground leading-relaxed">
+              {highRiskWarning.riskData.reasoning}
+            </p>
+            {highRiskWarning.riskData.signals.length > 0 && (
+              <div className="rounded-md bg-red-50 border border-red-200/60 px-3 py-2.5 dark:bg-red-950/20 dark:border-red-800/30">
+                <p className="text-xs font-medium text-red-700 dark:text-red-400 mb-1.5">Risk signals</p>
+                <ul className="space-y-1">
+                  {highRiskWarning.riskData.signals.map((s, i) => (
+                    <li key={i} className="flex items-start gap-2 text-xs text-red-600/80 dark:text-red-400/70">
+                      <span className="shrink-0 mt-0.5">•</span>
+                      {s}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            <p className="text-[11px] text-muted-foreground">
+              AI-estimated. Verify with FMCSA SAFER, carrier411, and direct vetting before tendering.
+            </p>
+            <div className="flex justify-end gap-2 pt-1">
+              <button
+                onClick={() => setHighRiskWarning(null)}
+                className="rounded-md bg-red-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-red-700 transition-colors"
+              >
+                Understood — proceed with caution
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

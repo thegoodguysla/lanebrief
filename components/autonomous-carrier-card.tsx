@@ -13,6 +13,15 @@ export interface AutonomousCarrierData {
   activeTruckCount: number | null;
 }
 
+export type CarrierRiskTier = "low" | "medium" | "high";
+
+export interface CarrierRiskData {
+  score: number;
+  tier: CarrierRiskTier;
+  signals: string[];
+  reasoning: string;
+}
+
 interface AutonomousCarrierCardProps {
   carrier: AutonomousCarrierData;
   corridors?: Array<{
@@ -21,6 +30,7 @@ interface AutonomousCarrierCardProps {
     highwayId: string | null;
     isCertified: boolean;
   }>;
+  riskData?: CarrierRiskData | "loading" | null;
 }
 
 function CertBadge({ status }: { status: string | null }) {
@@ -48,13 +58,27 @@ function CertBadge({ status }: { status: string | null }) {
   );
 }
 
+const RISK_BADGE_STYLES: Record<CarrierRiskTier, string> = {
+  low: "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400",
+  medium: "bg-amber-100 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400",
+  high: "bg-red-100 text-red-700 dark:bg-red-950/40 dark:text-red-400",
+};
+
+const RISK_DOT_STYLES: Record<CarrierRiskTier, string> = {
+  low: "bg-emerald-500",
+  medium: "bg-amber-500",
+  high: "bg-red-500",
+};
+
+const RISK_SCORE_TOOLTIP = `Payment Risk Score estimates the likelihood of double-brokering, carrier identity fraud, or payment disputes based on MC age, FMCSA authority history, factoring patterns, and operating history. Low = established, trusted carrier. High = elevated fraud/non-payment risk — verify before booking.`;
+
 const CERT_TOOLTIP = `FMCSA AV Certification means the carrier has received a federal exemption to operate autonomous vehicles commercially on approved highway segments. "Provisional" means conditional approval — typically under supervised operation with safety oversight.`;
 
 const UPTIME_TOOLTIP = `Uptime SLA is the carrier's publicly committed system availability. For AV freight, this represents the percentage of scheduled loads the autonomous system can execute without human takeover.`;
 
 const SAFETY_TOOLTIP = `Driverless miles per incident is a safety signal from public FMCSA safety reports. Higher is better — it means the system travels more miles between reportable incidents.`;
 
-export function AutonomousCarrierCard({ carrier, corridors = [] }: AutonomousCarrierCardProps) {
+export function AutonomousCarrierCard({ carrier, corridors = [], riskData }: AutonomousCarrierCardProps) {
   const [tooltip, setTooltip] = useState<string | null>(null);
 
   return (
@@ -77,6 +101,31 @@ export function AutonomousCarrierCard({ carrier, corridors = [] }: AutonomousCar
         </div>
         <CertBadge status={carrier.fmcsaCertStatus} />
       </div>
+
+      {/* Payment Risk Badge */}
+      {riskData === "loading" && (
+        <div className="flex items-center gap-2">
+          <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground animate-pulse">
+            <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/40" />
+            Checking payment risk…
+          </span>
+        </div>
+      )}
+      {riskData && riskData !== "loading" && (
+        <div className="flex items-start gap-2 flex-wrap">
+          <button
+            type="button"
+            onClick={() => setTooltip(tooltip === "risk" ? null : "risk")}
+            className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium transition-opacity hover:opacity-80 ${RISK_BADGE_STYLES[riskData.tier]}`}
+          >
+            <span className={`h-1.5 w-1.5 rounded-full ${RISK_DOT_STYLES[riskData.tier]}`} />
+            {riskData.tier === "low" && "Low Payment Risk"}
+            {riskData.tier === "medium" && "Medium Payment Risk"}
+            {riskData.tier === "high" && "⚠ High Payment Risk"}
+            <span className="ml-1 opacity-60">({riskData.score})</span>
+          </button>
+        </div>
+      )}
 
       {/* Metrics row */}
       <div className="grid grid-cols-3 gap-2 text-center">
@@ -120,6 +169,17 @@ export function AutonomousCarrierCard({ carrier, corridors = [] }: AutonomousCar
           {tooltip === "uptime" && UPTIME_TOOLTIP}
           {tooltip === "safety" && SAFETY_TOOLTIP}
           {tooltip === "cert" && CERT_TOOLTIP}
+          {tooltip === "risk" && riskData && riskData !== "loading" && (
+            <>
+              {RISK_SCORE_TOOLTIP}
+              {riskData.signals.length > 0 && (
+                <ul className="mt-2 space-y-0.5 list-disc list-inside">
+                  {riskData.signals.map((s, i) => <li key={i}>{s}</li>)}
+                </ul>
+              )}
+            </>
+          )}
+          {tooltip === "risk" && (!riskData || riskData === "loading") && RISK_SCORE_TOOLTIP}
         </p>
       )}
 

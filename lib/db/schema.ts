@@ -205,3 +205,19 @@ export const capacityHeatmapCache = pgTable("capacity_heatmap_cache", {
 
 export type CapacityHeatmapCache = typeof capacityHeatmapCache.$inferSelect;
 export type NewCapacityHeatmapCache = typeof capacityHeatmapCache.$inferInsert;
+
+// Carrier Payment Risk Score cache
+export const carrierRiskCache = pgTable("carrier_risk_cache", {
+  id: text("id").primaryKey(),
+  carrierId: text("carrier_id").notNull().references(() => carriers.id, { onDelete: "cascade" }),
+  score: integer("score").notNull(), // 0–100 (lower = riskier)
+  tier: text("tier").notNull(), // 'low' | 'medium' | 'high'
+  signals: text("signals").notNull(), // JSON string[]
+  reasoning: text("reasoning").notNull(),
+  generatedAt: timestamp("generated_at").notNull().defaultNow(),
+}, (t) => [
+  index("carrier_risk_carrier_idx").on(t.carrierId),
+]);
+
+export type CarrierRiskCache = typeof carrierRiskCache.$inferSelect;
+export type NewCarrierRiskCache = typeof carrierRiskCache.$inferInsert;
