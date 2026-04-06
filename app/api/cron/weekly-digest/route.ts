@@ -4,6 +4,7 @@ import { eq, and, desc, inArray } from "drizzle-orm";
 import { generateText } from "ai";
 import { Resend } from "resend";
 import { randomUUID } from "crypto";
+import { detectUSMXCrossing, getPatternDelayResult, type BorderDelayResult } from "@/lib/border-delay";
 
 // Vercel Cron: every Monday 8am ET (13:00 UTC)
 // vercel.json schedule: "0 13 * * 1"
@@ -91,9 +92,20 @@ type AtRiskLane = {
   reasoning: string;
 };
 
+type DelayOutlaneItem = {
+  origin: string;
+  destination: string;
+  crossingPoint: string;
+  riskLevel: "high" | "moderate" | "normal";
+  waitMinutes: number | null;
+  patternNote: string | null;
+  tariffCategoryFlag: boolean;
+};
+
 function buildDigestEmailHtml(
   alerts: { origin: string; destination: string; equipment: string; oldRate: number | null; newRate: number; deltaPct: number | null; insight: string; usmcaRisk: "high" | "medium" | null }[],
-  atRiskLanes: AtRiskLane[]
+  atRiskLanes: AtRiskLane[],
+  delayOutlook: DelayOutlaneItem[],
 ): string {
   const usmcaFlagged = alerts.filter((a) => a.usmcaRisk !== null);
   const usmcaSection = usmcaFlagged.length > 0
@@ -210,6 +222,42 @@ function buildDigestEmailHtml(
       </tbody>
     </table>
     <p style="margin: 6px 0 0 0; font-size: 11px; color: #A0AEC0;">Lock in carrier rates proactively on at-risk lanes to avoid tender rejection delays.</p>
+  </div>` : ""}
+
+  ${delayOutlook.filter((d) => d.riskLevel !== "normal").length > 0 ? `
+  <div style="margin-top: 24px;">
+    <p style="margin: 0 0 10px 0; font-size: 12px; font-weight: bold; color: #6B7B8D; text-transform: uppercase; letter-spacing: 0.05em;">
+      🚧 US-MX Crossing Delay Outlook
+    </p>
+    <table cellpadding="0" cellspacing="0" border="0" style="width: 100%; border-collapse: collapse; border: 1px solid #FEE2E2; border-radius: 8px; overflow: hidden;">
+      <thead>
+        <tr style="background-color: #FFF5F5;">
+          <th style="padding: 8px 14px; text-align: left; font-size: 11px; font-weight: bold; color: #991B1B; text-transform: uppercase;">Lane / Crossing</th>
+          <th style="padding: 8px 14px; text-align: right; font-size: 11px; font-weight: bold; color: #991B1B; text-transform: uppercase;">Delay Risk</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${delayOutlook.filter((d) => d.riskLevel !== "normal").map((d) => {
+          const riskColor = d.riskLevel === "high" ? "#DC2626" : "#D97706";
+          const riskEmoji = d.riskLevel === "high" ? "🔴" : "🟡";
+          const riskLabel = d.riskLevel === "high" ? "High" : "Moderate";
+          const waitLabel = d.waitMinutes ? ` (~${d.waitMinutes}min)` : "";
+          return `
+        <tr>
+          <td style="padding: 10px 14px; border-top: 1px solid #FEE2E2;">
+            <strong style="color: #0D1F3C; font-size: 13px;">${d.origin} → ${d.destination}</strong><br/>
+            <span style="font-size: 11px; color: #6B7B8D;">${d.crossingPoint}</span>
+            ${d.patternNote ? `<br/><span style="font-size: 11px; color: #4A5568; font-style: italic;">${d.patternNote}</span>` : ""}
+            ${d.tariffCategoryFlag ? `<br/><span style="font-size: 11px; color: #DC2626;">⚠ Tariff-category cargo — elevated CBP inspection</span>` : ""}
+          </td>
+          <td style="padding: 10px 14px; border-top: 1px solid #FEE2E2; text-align: right; vertical-align: top;">
+            <span style="font-size: 14px; font-weight: bold; color: ${riskColor};">${riskEmoji} ${riskLabel}${waitLabel}</span>
+          </td>
+        </tr>`;
+        }).join("")}
+      </tbody>
+    </table>
+    <p style="margin: 6px 0 0 0; font-size: 11px; color: #A0AEC0;">Build crossing delays into transit time quotes for US-MX lanes. Mon/Fri are historically worst days. <a href="https://bwt.cbp.gov" style="color: #A0AEC0;">Live CBP data →</a></p>
   </div>` : ""}
 
   <div style="margin-top: 20px; text-align: center;">
@@ -425,13 +473,33 @@ export async function GET(req: Request) {
 
     const atRisk = userAtRiskLanes.get(userId) ?? [];
 
+    // Build crossing delay outlook for this user's US-MX lanes
+    const userLanesForDelay = lanesWithUsers.filter((l) => l.userId === userId);
+    const delayOutlook: DelayOutlaneItem[] = [];
+    for (const l of userLanesForDelay) {
+      const crossing = detectUSMXCrossing({ origin: l.origin, destination: l.destination });
+      if (!crossing) continue;
+      const result = getPatternDelayResult({ origin: l.origin, destination: l.destination, equipment: l.equipment });
+      if (result.crossingPoint) {
+        delayOutlook.push({
+          origin: l.origin,
+          destination: l.destination,
+          crossingPoint: result.crossingPoint,
+          riskLevel: result.riskLevel,
+          waitMinutes: result.waitMinutes,
+          patternNote: result.patternNote,
+          tariffCategoryFlag: result.tariffCategoryFlag,
+        });
+      }
+    }
+
     try {
       await resend.emails.send({
         from: FROM,
         replyTo: "intel@lanebrief.com",
         to: email,
         subject,
-        html: buildDigestEmailHtml(alerts, atRisk),
+        html: buildDigestEmailHtml(alerts, atRisk, delayOutlook),
       });
       emailsSent++;
     } catch (err) {

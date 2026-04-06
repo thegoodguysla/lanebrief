@@ -123,6 +123,14 @@ type ForecastData = {
   horizon: "7d";
 };
 
+type BorderDelay = {
+  riskLevel: "high" | "moderate" | "normal";
+  crossingPoint: string | null;
+  waitMinutes: number | null;
+  patternNote: string | null;
+  tariffCategoryFlag: boolean;
+};
+
 export default function DashboardPage() {
   const { user, isLoaded } = useUser();
   const router = useRouter();
@@ -148,6 +156,7 @@ export default function DashboardPage() {
   const [expandedAvLane, setExpandedAvLane] = useState<string | null>(null);
   const [tenderScores, setTenderScores] = useState<Record<string, TenderScore | "loading">>({});
   const [forecasts, setForecasts] = useState<Record<string, ForecastData | "loading" | "insufficient">>({});
+  const [borderDelays, setBorderDelays] = useState<Record<string, BorderDelay | "loading">>({});
   const avOnly = searchParams.get("avOnly") === "1";
   const isNewUser = searchParams.get("newUser") === "1";
   const [showGettingStarted, setShowGettingStarted] = useState(isNewUser);
@@ -221,6 +230,35 @@ export default function DashboardPage() {
     }
   }, []);
 
+  const fetchBorderDelays = useCallback((lanesData: Lane[]) => {
+    // Only fetch for US-MX lanes (detected client-side by tariff keywords)
+    const MX_KEYWORDS = [
+      "laredo", "nuevo laredo", "el paso", "ciudad juarez", "ciudad juárez", "juarez",
+      "pharr", "mcallen", "reynosa", "eagle pass", "piedras negras",
+      "del rio", "ciudad acuna", "ciudad acuña", "nogales", "otay mesa", "tijuana",
+      "calexico", "mexicali",
+    ];
+    const mxLanes = lanesData.filter((l) => {
+      const text = `${l.origin} ${l.destination}`.toLowerCase();
+      return MX_KEYWORDS.some((kw) => text.includes(kw));
+    });
+    for (const lane of mxLanes) {
+      setBorderDelays((prev) => ({ ...prev, [lane.id]: "loading" }));
+      fetch(`/api/lanes/${lane.id}/border-delay`)
+        .then((r) => r.json())
+        .then((data: BorderDelay) => {
+          setBorderDelays((prev) => ({ ...prev, [lane.id]: data }));
+        })
+        .catch(() => {
+          setBorderDelays((prev) => {
+            const next = { ...prev };
+            delete next[lane.id];
+            return next;
+          });
+        });
+    }
+  }, []);
+
   useEffect(() => {
     if (!isLoaded || !user || initialized) return;
 
@@ -247,9 +285,10 @@ export default function DashboardPage() {
         fetchAvCoverage(loadedLanes.map((l) => l.id));
         fetchTenderScores(loadedLanes.map((l) => l.id));
         fetchForecasts(loadedLanes.map((l) => l.id));
+        fetchBorderDelays(loadedLanes);
       })
       .catch(() => setInitialized(true));
-  }, [isLoaded, user, initialized, router, fetchAvCoverage, fetchTenderScores, fetchForecasts]);
+  }, [isLoaded, user, initialized, router, fetchAvCoverage, fetchTenderScores, fetchForecasts, fetchBorderDelays]);
 
   async function loadLanes() {
     const res = await fetch("/api/lanes");
@@ -264,6 +303,8 @@ export default function DashboardPage() {
       if (missingScores.length > 0) fetchTenderScores(missingScores);
       const missingForecasts = loadedLanes.map((l) => l.id).filter((id) => !(id in forecasts));
       if (missingForecasts.length > 0) fetchForecasts(missingForecasts);
+      const missingDelays = loadedLanes.filter((l) => !(l.id in borderDelays));
+      if (missingDelays.length > 0) fetchBorderDelays(missingDelays);
     }
   }
 
@@ -416,7 +457,7 @@ export default function DashboardPage() {
         </div>
       </nav>
 
-      <main className="max-w-5xl mx-auto px-4 py-8 space-y-10">
+      <main className="max-w-5xl mx-auto px-4 py-6 sm:py-8 space-y-8 sm:space-y-10">
         {/* Getting started callout — shown on first login after onboarding */}
         {showGettingStarted && (
           <div className="rounded-lg border border-primary/30 bg-primary/5 px-5 py-4 flex items-start justify-between gap-4">
@@ -456,7 +497,7 @@ export default function DashboardPage() {
               Track up to 5 lanes. Generate AI-powered freight intelligence briefs anytime.
             </p>
           </div>
-          <div className="flex flex-col gap-3 rounded-lg border border-border px-4 py-3 shrink-0 min-w-[220px]">
+          <div className="flex flex-col gap-3 rounded-lg border border-border px-4 py-3 w-full sm:w-auto sm:shrink-0 sm:min-w-[220px]">
             <div className="flex items-center justify-between gap-3">
               <div>
                 <p className="text-sm font-medium">Rate Alerts</p>
@@ -529,6 +570,7 @@ export default function DashboardPage() {
               const usmcaFlag = getUSMCAFlag(lane);
               const tenderScore = tenderScores[lane.id];
               const forecast = forecasts[lane.id];
+              const borderDelay = borderDelays[lane.id];
               return (
                 <div
                   key={lane.id}
@@ -636,6 +678,35 @@ export default function DashboardPage() {
                             className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/40 px-2 py-0.5 text-[10px] font-medium text-muted-foreground cursor-help"
                           >
                             → flat 7d
+                          </span>
+                        )}
+                        {borderDelay === "loading" && (
+                          <span className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[10px] font-medium text-muted-foreground animate-pulse">
+                            ◌ crossing…
+                          </span>
+                        )}
+                        {borderDelay && borderDelay !== "loading" && borderDelay.riskLevel === "high" && (
+                          <span
+                            title={`High crossing delay risk${borderDelay.waitMinutes ? ` — est. ${borderDelay.waitMinutes}min wait` : ""} at ${borderDelay.crossingPoint ?? "US-MX border"}. ${borderDelay.patternNote ?? ""}${borderDelay.tariffCategoryFlag ? " Tariff-category cargo elevates CBP inspection probability." : ""}`}
+                            className="inline-flex items-center gap-1 rounded-full border border-red-400/60 bg-red-50 px-2 py-0.5 text-[10px] font-medium text-red-700 dark:bg-red-950/30 dark:text-red-400 dark:border-red-500/40 cursor-help"
+                          >
+                            🔴 High delay risk
+                          </span>
+                        )}
+                        {borderDelay && borderDelay !== "loading" && borderDelay.riskLevel === "moderate" && (
+                          <span
+                            title={`Moderate crossing delay${borderDelay.waitMinutes ? ` — est. ${borderDelay.waitMinutes}min wait` : ""} at ${borderDelay.crossingPoint ?? "US-MX border"}. ${borderDelay.patternNote ?? ""}`}
+                            className="inline-flex items-center gap-1 rounded-full border border-yellow-400/60 bg-yellow-50 px-2 py-0.5 text-[10px] font-medium text-yellow-700 dark:bg-yellow-950/30 dark:text-yellow-500 dark:border-yellow-600/40 cursor-help"
+                          >
+                            🟡 Moderate delay
+                          </span>
+                        )}
+                        {borderDelay && borderDelay !== "loading" && borderDelay.riskLevel === "normal" && borderDelay.crossingPoint && (
+                          <span
+                            title={`Normal flow at ${borderDelay.crossingPoint}. ${borderDelay.patternNote ?? ""}`}
+                            className="inline-flex items-center gap-1 rounded-full border border-emerald-300/60 bg-emerald-50/60 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-950/20 dark:text-emerald-500 dark:border-emerald-600/30 cursor-help"
+                          >
+                            🟢 Normal flow
                           </span>
                         )}
                       </div>
@@ -756,14 +827,14 @@ export default function DashboardPage() {
 
           {/* Add lane form */}
           {lanes.length < 5 && (
-            <form onSubmit={addLane} className="flex flex-wrap gap-2 items-end pt-2">
+            <form onSubmit={addLane} className="flex flex-col sm:flex-row sm:flex-wrap gap-2 sm:items-end pt-2">
               <div className="flex flex-col gap-1">
                 <label className="text-xs text-muted-foreground">Origin</label>
                 <Input
                   value={origin}
                   onChange={(e) => setOrigin(e.target.value)}
                   placeholder="e.g. Chicago, IL"
-                  className="w-44"
+                  className="w-full sm:w-44"
                   required
                 />
               </div>
@@ -773,7 +844,7 @@ export default function DashboardPage() {
                   value={destination}
                   onChange={(e) => setDestination(e.target.value)}
                   placeholder="e.g. Atlanta, GA"
-                  className="w-44"
+                  className="w-full sm:w-44"
                   required
                 />
               </div>
@@ -782,14 +853,14 @@ export default function DashboardPage() {
                 <select
                   value={equipment}
                   onChange={(e) => setEquipment(e.target.value)}
-                  className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                  className="h-9 w-full sm:w-auto rounded-md border border-input bg-background px-3 text-sm"
                 >
                   <option value="dry_van">Dry Van</option>
                   <option value="reefer">Reefer</option>
                   <option value="flatbed">Flatbed</option>
                 </select>
               </div>
-              <Button type="submit" disabled={adding} size="sm">
+              <Button type="submit" disabled={adding} size="sm" className="w-full sm:w-auto">
                 {adding ? "Adding…" : "Add Lane"}
               </Button>
             </form>
@@ -811,7 +882,7 @@ export default function DashboardPage() {
                 Dismiss
               </button>
             </div>
-            <div className="rounded-lg border border-border p-6 prose prose-sm max-w-none dark:prose-invert">
+            <div className="rounded-lg border border-border p-4 sm:p-6 prose prose-sm max-w-none dark:prose-invert overflow-x-auto">
               <pre className="whitespace-pre-wrap text-sm font-sans leading-relaxed">
                 {selectedBrief.content}
               </pre>
