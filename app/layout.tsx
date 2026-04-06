@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Inter, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { GoogleAnalytics } from "@next/third-parties/google";
@@ -17,6 +17,14 @@ const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
   subsets: ["latin"],
 });
+
+export const viewport: Viewport = {
+  themeColor: "#0D1F3C",
+  width: "device-width",
+  initialScale: 1,
+  minimumScale: 1,
+  viewportFit: "cover",
+};
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://lanebrief.com"),
@@ -62,6 +70,11 @@ export const metadata: Metadata = {
   },
   alternates: {
     canonical: "https://lanebrief.com",
+  },
+  appleWebApp: {
+    capable: true,
+    title: "LaneBrief",
+    statusBarStyle: "black-translucent",
   },
 };
 

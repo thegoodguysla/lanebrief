@@ -3,8 +3,8 @@ import { getDb } from "@/lib/db";
 import { users, lanes } from "@/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 import { randomUUID } from "crypto";
-
-const MAX_LANES = 5;
+import { FREE_LANE_LIMIT, isPro } from "@/lib/stripe";
+import { Resend } from "resend";
 
 async function getDbUser(clerkId: string) {
   const db = getDb();
@@ -21,7 +21,13 @@ export async function GET() {
 
   const db = getDb();
   const userLanes = await db.select().from(lanes).where(eq(lanes.userId, user.id));
-  return Response.json({ lanes: userLanes });
+  const proUser = isPro(user);
+  return Response.json({
+    lanes: userLanes,
+    planTier: user.planTier,
+    isPro: proUser,
+    laneLimit: proUser ? null : FREE_LANE_LIMIT,
+  });
 }
 
 export async function POST(req: Request) {
@@ -33,8 +39,18 @@ export async function POST(req: Request) {
 
   const db = getDb();
   const existing = await db.select().from(lanes).where(eq(lanes.userId, user.id));
-  if (existing.length >= MAX_LANES) {
-    return Response.json({ error: `Maximum ${MAX_LANES} lanes allowed` }, { status: 422 });
+  const proUser = isPro(user);
+
+  if (!proUser && existing.length >= FREE_LANE_LIMIT) {
+    return Response.json(
+      {
+        error: "Free plan limit reached",
+        code: "LANE_LIMIT_REACHED",
+        laneLimit: FREE_LANE_LIMIT,
+        isPro: false,
+      },
+      { status: 422 }
+    );
   }
 
   const body = await req.json();
@@ -52,6 +68,28 @@ export async function POST(req: Request) {
     .insert(lanes)
     .values({ id: randomUUID(), userId: user.id, origin, destination, equipment })
     .returning();
+
+  // Send upgrade email when free user saves their 3rd (last free) lane
+  const newCount = existing.length + 1;
+  if (!proUser && newCount === FREE_LANE_LIMIT) {
+    try {
+      const resend = new Resend(process.env.RESEND_API_KEY);
+      const firstName = user.email.split("@")[0];
+      await resend.emails.send({
+        from: "Nick <nick@lanebrief.com>",
+        to: user.email,
+        subject: "You've maxed out your free lanes on LaneBrief",
+        html: `<p>Hey ${firstName},</p>
+<p>You've saved 3 lanes — that's the free plan limit.</p>
+<p>Upgrade to LaneBrief Pro for unlimited lanes, 7-day forecasts, and your full Portfolio Intelligence View.</p>
+<p>$79/month. Cancel anytime.</p>
+<p><a href="https://lanebrief.com/pricing">Upgrade to Pro →</a></p>
+<p>— Nick</p>`,
+      });
+    } catch (err) {
+      console.error("Failed to send upgrade email:", err);
+    }
+  }
 
   return Response.json({ lane }, { status: 201 });
 }

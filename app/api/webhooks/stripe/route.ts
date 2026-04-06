@@ -1,4 +1,7 @@
 import Stripe from "stripe";
+import { getDb } from "@/lib/db";
+import { users } from "@/lib/db/schema";
+import { eq } from "drizzle-orm";
 
 export async function POST(request: Request) {
   const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
@@ -20,46 +23,83 @@ export async function POST(request: Request) {
     return Response.json({ error: "Invalid signature" }, { status: 400 });
   }
 
+  const db = getDb();
+
   switch (event.type) {
     case "checkout.session.completed": {
       const session = event.data.object as Stripe.Checkout.Session;
-      console.log(
-        `Checkout completed: ${session.id}, customer: ${session.customer_email}, amount: ${session.amount_total}`
-      );
+      const customerId = session.customer as string;
+      const subscriptionId = session.subscription as string;
+
+      if (subscriptionId) {
+        const subscription = await stripe.subscriptions.retrieve(subscriptionId);
+        await db
+          .update(users)
+          .set({
+            stripeCustomerId: customerId,
+            subscriptionId,
+            subscriptionStatus: subscription.status,
+            planTier: "pro",
+            updatedAt: new Date(),
+          })
+          .where(eq(users.stripeCustomerId, customerId));
+        console.log(`Checkout completed: ${session.id}, customer: ${customerId}, sub: ${subscriptionId}`);
+      }
       break;
     }
 
-    case "invoice.paid": {
-      const invoice = event.data.object as Stripe.Invoice;
-      console.log(
-        `Invoice paid: ${invoice.id}, customer: ${invoice.customer_email}, total: ${invoice.total}`
-      );
-      break;
-    }
-
-    case "invoice.payment_failed": {
-      const invoice = event.data.object as Stripe.Invoice;
-      console.error(
-        `Payment failed: ${invoice.id}, customer: ${invoice.customer_email}`
-      );
-      break;
-    }
-
-    case "customer.subscription.created": {
-      const subscription = event.data.object as Stripe.Subscription;
-      console.log(`New subscription: ${subscription.id}, status: ${subscription.status}`);
-      break;
-    }
-
+    case "customer.subscription.created":
     case "customer.subscription.updated": {
       const subscription = event.data.object as Stripe.Subscription;
-      console.log(`Subscription updated: ${subscription.id}, status: ${subscription.status}`);
+      const customerId = subscription.customer as string;
+      const isActive = subscription.status === "active" || subscription.status === "trialing";
+
+      await db
+        .update(users)
+        .set({
+          subscriptionId: subscription.id,
+          subscriptionStatus: subscription.status,
+          planTier: isActive ? "pro" : "free",
+          updatedAt: new Date(),
+        })
+        .where(eq(users.stripeCustomerId, customerId));
+      console.log(`Subscription ${event.type}: ${subscription.id}, status: ${subscription.status}`);
       break;
     }
 
     case "customer.subscription.deleted": {
       const subscription = event.data.object as Stripe.Subscription;
+      const customerId = subscription.customer as string;
+
+      await db
+        .update(users)
+        .set({
+          subscriptionStatus: "canceled",
+          planTier: "free",
+          subscriptionId: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(users.stripeCustomerId, customerId));
       console.log(`Subscription cancelled: ${subscription.id}`);
+      break;
+    }
+
+    case "invoice.paid": {
+      const invoice = event.data.object as Stripe.Invoice;
+      console.log(`Invoice paid: ${invoice.id}, customer: ${invoice.customer_email}`);
+      break;
+    }
+
+    case "invoice.payment_failed": {
+      const invoice = event.data.object as Stripe.Invoice;
+      const customerId = invoice.customer as string;
+      if (customerId) {
+        await db
+          .update(users)
+          .set({ subscriptionStatus: "past_due", updatedAt: new Date() })
+          .where(eq(users.stripeCustomerId, customerId));
+      }
+      console.error(`Payment failed: ${invoice.id}, customer: ${invoice.customer_email}`);
       break;
     }
 

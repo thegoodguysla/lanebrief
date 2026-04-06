@@ -50,6 +50,13 @@
       "when": 1744156800000,
       "tag": "0007_capacity_heatmap_cache",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1775518287724,
+      "tag": "0008_stripe_billing",
+      "breakpoints": true
     }
   ]
 }

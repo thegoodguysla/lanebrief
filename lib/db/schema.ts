@@ -20,6 +20,12 @@ export const users = pgTable("users", {
   alertOptIn: boolean("alert_opt_in").notNull().default(false),
   alertMode: text("alert_mode").notNull().default("digest"), // 'instant' | 'digest'
   autonomousBeta: boolean("autonomous_beta").notNull().default(false),
+  // Billing / subscription
+  stripeCustomerId: text("stripe_customer_id"),
+  planTier: text("plan_tier").notNull().default("free"), // 'free' | 'pro'
+  subscriptionStatus: text("subscription_status"), // 'active' | 'trialing' | 'past_due' | 'canceled' | null
+  subscriptionId: text("subscription_id"),
+  trialEndsAt: timestamp("trial_ends_at"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });

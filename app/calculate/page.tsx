@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -39,7 +39,7 @@ function ActionBadge({ action }: { action: CalculateResponse["recommendation_act
   return <Badge className={`text-sm py-1 px-3 ${cls}`}>{label}</Badge>;
 }
 
-export default function CalculatePage() {
+function CalculatePageInner() {
   const searchParams = useSearchParams();
   const router = useRouter();
 
@@ -366,5 +366,13 @@ export default function CalculatePage() {
         )}
       </main>
     </div>
+  );
+}
+
+export default function CalculatePage() {
+  return (
+    <Suspense>
+      <CalculatePageInner />
+    </Suspense>
   );
 }

@@ -213,7 +213,8 @@ export default function LaneBriefLanding() {
             <a href="#benchmarker" className="hover:text-foreground transition-colors">Rate check</a>
             <a href="#carrier-score" className="hover:text-foreground transition-colors">Carrier score</a>
             <a href="#av-intel" className="hover:text-foreground transition-colors">AV Intel</a>
-            <a href="#pricing" className="hover:text-foreground transition-colors">Pricing</a>
+            <a href="/pricing" className="hover:text-foreground transition-colors">Pricing</a>
+            <a href="/sample-report" className="hover:text-foreground transition-colors font-medium text-primary">Free Sample Report</a>
           </nav>
           <a href="#get-started" className={cn(buttonVariants({ size: "sm" }), "bg-primary text-primary-foreground hover:bg-primary/90")}>
             Get free lane brief
@@ -1479,7 +1480,7 @@ export default function LaneBriefLanding() {
               <ul className="space-y-2 text-sm text-muted-foreground">
                 <li><a href="#how-it-works" className="hover:text-foreground transition-colors">How it works</a></li>
                 <li><a href="#sample" className="hover:text-foreground transition-colors">Sample report</a></li>
-                <li><a href="#pricing" className="hover:text-foreground transition-colors">Pricing</a></li>
+                <li><a href="/pricing" className="hover:text-foreground transition-colors">Pricing</a></li>
                 <li><a href="#coming-soon" className="hover:text-foreground transition-colors">Coming soon</a></li>
                 <li><a href="#get-started" className="hover:text-foreground transition-colors">Get started</a></li>
               </ul>

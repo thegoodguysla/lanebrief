@@ -169,8 +169,13 @@ export default function DashboardPage() {
   const [expandedCapacityLane, setExpandedCapacityLane] = useState<string | null>(null);
   const [carrierRiskScores, setCarrierRiskScores] = useState<Record<string, CarrierRiskData | "loading">>({});
   const [highRiskWarning, setHighRiskWarning] = useState<{ carrier: AutonomousCarrierData; riskData: CarrierRiskData } | null>(null);
+  const [isPro, setIsPro] = useState(false);
+  const [laneLimit, setLaneLimit] = useState<number | null>(3);
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [checkoutLoading, setCheckoutLoading] = useState(false);
   const avOnly = searchParams.get("avOnly") === "1";
   const isNewUser = searchParams.get("newUser") === "1";
+  const justUpgraded = searchParams.get("upgraded") === "1";
   const [showGettingStarted, setShowGettingStarted] = useState(isNewUser);
   const [activeTab, setActiveTab] = useState<"lanes" | "roi">("lanes");
 
@@ -353,6 +358,8 @@ export default function DashboardPage() {
         }
         const loadedLanes: Lane[] = lanesData.lanes ?? [];
         setLanes(loadedLanes);
+        setIsPro(lanesData.isPro ?? false);
+        setLaneLimit(lanesData.laneLimit ?? null);
         setBriefs(briefsData.briefs ?? []);
         setInitialized(true);
         fetchAvCoverage(loadedLanes.map((l) => l.id));
@@ -370,6 +377,8 @@ export default function DashboardPage() {
       const data = await res.json();
       const loadedLanes: Lane[] = data.lanes ?? [];
       setLanes(loadedLanes);
+      setIsPro(data.isPro ?? false);
+      setLaneLimit(data.laneLimit ?? null);
       // Fetch coverage and tender scores for any lanes not yet loaded
       const missing = loadedLanes.map((l) => l.id).filter((id) => !(id in avCoverage));
       if (missing.length > 0) fetchAvCoverage(missing);
@@ -405,6 +414,10 @@ export default function DashboardPage() {
       });
       if (!res.ok) {
         const data = await res.json();
+        if (data.code === "LANE_LIMIT_REACHED") {
+          setShowUpgradeModal(true);
+          return;
+        }
         setError(data.error ?? "Failed to add lane");
         return;
       }
@@ -521,8 +534,64 @@ export default function DashboardPage() {
     );
   }
 
+  async function handleUpgradeCheckout() {
+    setCheckoutLoading(true);
+    try {
+      const { STRIPE_PRICES } = await import("@/lib/stripe");
+      const res = await fetch("/api/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ priceId: STRIPE_PRICES.proMonthly }),
+      });
+      const data = await res.json();
+      if (data.url) window.location.href = data.url;
+    } finally {
+      setCheckoutLoading(false);
+    }
+  }
+
   return (
     <div className="min-h-screen bg-background text-foreground">
+      {/* Upgrade modal */}
+      {showUpgradeModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+          <div className="bg-background border border-border rounded-xl shadow-xl max-w-sm w-full p-6 space-y-4">
+            <div className="space-y-1">
+              <h2 className="font-semibold text-lg">You&apos;ve used all 3 free lanes</h2>
+              <p className="text-sm text-muted-foreground">
+                Upgrade to LaneBrief Pro for unlimited lanes, 7-day forecasts, and your full Portfolio Intelligence View.
+              </p>
+            </div>
+            <div className="rounded-lg bg-primary/5 border border-primary/20 px-4 py-3 text-sm space-y-1">
+              <div className="font-semibold text-primary">LaneBrief Pro — $79/month</div>
+              <ul className="text-muted-foreground space-y-0.5 text-xs">
+                <li>✓ Unlimited lanes</li>
+                <li>✓ 7-day rate forecasts</li>
+                <li>✓ Unlimited carrier risk scores</li>
+                <li>✓ Rate alerts + tariff flags</li>
+              </ul>
+            </div>
+            <div className="flex gap-2">
+              <Button
+                className="flex-1 bg-primary text-primary-foreground hover:bg-primary/90"
+                onClick={handleUpgradeCheckout}
+                disabled={checkoutLoading}
+              >
+                {checkoutLoading ? "Redirecting..." : "Upgrade to Pro →"}
+              </Button>
+              <Button variant="outline" onClick={() => setShowUpgradeModal(false)}>
+                Later
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Upgraded banner */}
+      {justUpgraded && (
+        <div className="bg-primary/10 border-b border-primary/20 px-4 py-2 text-sm text-center text-primary font-medium">
+          Welcome to Pro! All features are now unlocked.
+        </div>
+      )}
       {/* Nav */}
       <nav className="border-b border-border/60 bg-background/95 backdrop-blur sticky top-0 z-50">
         <div className="max-w-5xl mx-auto px-4 h-14 flex items-center justify-between">
@@ -530,6 +599,19 @@ export default function DashboardPage() {
             LaneBrief
           </Link>
           <div className="flex items-center gap-3">
+            {isPro && (
+              <Badge className="bg-primary/10 text-primary border border-primary/30 text-xs font-medium hidden sm:inline-flex">
+                Pro
+              </Badge>
+            )}
+            {!isPro && (
+              <Link
+                href="/pricing"
+                className="text-xs text-primary underline underline-offset-2 hover:text-primary/80 transition-colors hidden sm:block"
+              >
+                Upgrade to Pro
+              </Link>
+            )}
             <Link
               href="/calculate"
               className="text-sm text-muted-foreground hover:text-foreground transition-colors hidden sm:block"
@@ -550,7 +632,7 @@ export default function DashboardPage() {
               <ul className="space-y-1">
                 {[
                   "Generate a brief anytime — hit the button on any lane card",
-                  "Add up to 5 lanes — use the form below your cards",
+                  `Add up to ${isPro ? "unlimited" : "3 free"} lanes — use the form below your cards`,
                   "Enable weekly alerts — toggle in the top-right to get Monday rate digests",
                   "Download a shipper pitch PDF — link appears under each brief",
                 ].map((tip) => (
