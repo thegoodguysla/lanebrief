@@ -247,3 +247,19 @@ export const reportShares = pgTable("report_shares", {
 
 export type ReportShare = typeof reportShares.$inferSelect;
 export type NewReportShare = typeof reportShares.$inferInsert;
+
+// Onboarding email drip sequence tracking
+export const onboardingEmails = pgTable("onboarding_emails", {
+  id: text("id").primaryKey(),
+  userId: text("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  emailNumber: integer("email_number").notNull(), // 1–5
+  sentAt: timestamp("sent_at").notNull().defaultNow(),
+}, (t) => [
+  unique("onboarding_emails_user_number").on(t.userId, t.emailNumber),
+  index("onboarding_emails_user_idx").on(t.userId),
+]);
+
+export type OnboardingEmail = typeof onboardingEmails.$inferSelect;
+export type NewOnboardingEmail = typeof onboardingEmails.$inferInsert;

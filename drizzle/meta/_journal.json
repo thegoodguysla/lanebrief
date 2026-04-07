@@ -64,6 +64,13 @@
       "when": 1775604687724,
       "tag": "0009_report_shares",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1744416000000,
+      "tag": "0010_onboarding_emails",
+      "breakpoints": true
     }
   ]
 }
