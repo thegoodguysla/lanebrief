@@ -1,7 +1,8 @@
 import Stripe from "stripe";
 import { getDb } from "@/lib/db";
-import { users } from "@/lib/db/schema";
-import { eq } from "drizzle-orm";
+import { users, affiliates, affiliateEarnings } from "@/lib/db/schema";
+import { eq, sql } from "drizzle-orm";
+import { randomUUID } from "crypto";
 
 export async function POST(request: Request) {
   const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
@@ -86,6 +87,52 @@ export async function POST(request: Request) {
 
     case "invoice.paid": {
       const invoice = event.data.object as Stripe.Invoice;
+      const customerId = invoice.customer as string;
+      const amountPaidCents = invoice.amount_paid ?? 0;
+
+      // Credit 20% affiliate commission if this user was referred
+      if (customerId && amountPaidCents > 0) {
+        const [user] = await db
+          .select({ id: users.id, affiliateCode: users.affiliateCode })
+          .from(users)
+          .where(eq(users.stripeCustomerId, customerId))
+          .limit(1);
+
+        if (user?.affiliateCode) {
+          const [affiliate] = await db
+            .select({ id: affiliates.id })
+            .from(affiliates)
+            .where(eq(affiliates.code, user.affiliateCode))
+            .limit(1);
+
+          if (affiliate) {
+            const commissionUsd = Math.round(amountPaidCents * 0.20) / 100;
+
+            // Idempotent: unique constraint on invoice_id prevents double-crediting
+            await db
+              .insert(affiliateEarnings)
+              .values({
+                id: randomUUID(),
+                affiliateId: affiliate.id,
+                userId: user.id,
+                invoiceId: invoice.id,
+                amountUsd: commissionUsd,
+              })
+              .onConflictDoNothing();
+
+            await db
+              .update(affiliates)
+              .set({
+                pendingEarnings: sql`${affiliates.pendingEarnings} + ${commissionUsd}`,
+                updatedAt: new Date(),
+              })
+              .where(eq(affiliates.id, affiliate.id));
+
+            console.log(`Affiliate commission: ${commissionUsd} USD → affiliate ${affiliate.id} for invoice ${invoice.id}`);
+          }
+        }
+      }
+
       console.log(`Invoice paid: ${invoice.id}, customer: ${invoice.customer_email}`);
       break;
     }

@@ -1,6 +1,7 @@
 import { auth, currentUser } from "@clerk/nextjs/server";
+import { cookies } from "next/headers";
 import { getDb } from "@/lib/db";
-import { users, onboardingEmails } from "@/lib/db/schema";
+import { users, onboardingEmails, affiliates } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { Resend } from "resend";
@@ -75,9 +76,30 @@ export async function POST() {
     return Response.json({ user: existing[0] });
   }
 
+  // Read affiliate ref cookie set by proxy.ts on first visit
+  const cookieStore = await cookies();
+  const refCode = cookieStore.get("lb_ref")?.value ?? null;
+
+  // Verify the ref code belongs to an approved affiliate
+  let verifiedAffiliateCode: string | null = null;
+  if (refCode) {
+    const [affiliate] = await db
+      .select({ code: affiliates.code })
+      .from(affiliates)
+      .where(eq(affiliates.code, refCode))
+      .limit(1);
+    if (affiliate) verifiedAffiliateCode = affiliate.code;
+  }
+
   const [newUser] = await db
     .insert(users)
-    .values({ id: randomUUID(), clerkId: userId, email, alertOptIn: false })
+    .values({
+      id: randomUUID(),
+      clerkId: userId,
+      email,
+      alertOptIn: false,
+      affiliateCode: verifiedAffiliateCode,
+    })
     .returning();
 
   // Fire-and-forget: send Email 1 of onboarding drip

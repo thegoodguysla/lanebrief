@@ -33,6 +33,14 @@ const PRO_FEATURES = [
   { label: "Rate alerts + tariff flags", included: true },
   { label: "Weekly Intelligence Report", included: true },
   { label: "Priority email support", included: true },
+  { label: "API access (1,000 requests/mo)", included: true },
+];
+
+const ENTERPRISE_FEATURES = [
+  { label: "Everything in Pro", included: true },
+  { label: "Unlimited API calls", included: true },
+  { label: "Custom lane coverage", included: true },
+  { label: "Dedicated support", included: true },
 ];
 
 const FAQS = [
@@ -143,7 +151,7 @@ export default function PricingPage() {
         </div>
 
         {/* Pricing cards */}
-        <div className="grid md:grid-cols-2 gap-6 max-w-3xl mx-auto">
+        <div className="grid md:grid-cols-3 gap-6 max-w-5xl mx-auto">
           {/* Free card */}
           <div className="rounded-xl border border-border bg-card p-6 flex flex-col gap-6">
             <div>
@@ -213,6 +221,36 @@ export default function PricingPage() {
               <Link href="/demo" className="text-primary underline underline-offset-2 hover:text-primary/80 transition-colors">
                 Book a 20-min demo →
               </Link>
+            </p>
+          </div>
+
+          {/* Enterprise card */}
+          <div className="rounded-xl border border-border bg-card p-6 flex flex-col gap-6">
+            <div>
+              <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground mb-1">Enterprise</p>
+              <h2 className="text-2xl font-bold">LaneBrief Enterprise</h2>
+              <div className="flex items-baseline gap-1 mt-3">
+                <span className="text-4xl font-bold">$299</span>
+                <span className="text-muted-foreground">/month</span>
+              </div>
+              <p className="text-sm text-muted-foreground mt-1">Billed monthly — cancel anytime</p>
+            </div>
+            <ul className="space-y-3 flex-1">
+              {ENTERPRISE_FEATURES.map((f) => (
+                <li key={f.label} className="flex items-start gap-2.5 text-sm">
+                  <span className="mt-0.5 text-primary">✓</span>
+                  <span className="text-foreground">{f.label}</span>
+                </li>
+              ))}
+            </ul>
+            <a
+              href="mailto:nick@lanebrief.com?subject=Enterprise%20Plan%20Inquiry"
+              className={cn(buttonVariants({ variant: "outline" }), "w-full justify-center")}
+            >
+              Contact us
+            </a>
+            <p className="text-center text-xs text-muted-foreground">
+              Includes everything in Pro plus unlimited API access and dedicated support.
             </p>
           </div>
         </div>

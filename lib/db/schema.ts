@@ -26,6 +26,8 @@ export const users = pgTable("users", {
   subscriptionStatus: text("subscription_status"), // 'active' | 'trialing' | 'past_due' | 'canceled' | null
   subscriptionId: text("subscription_id"),
   trialEndsAt: timestamp("trial_ends_at"),
+  // Affiliate attribution (set on signup from ?ref= cookie)
+  affiliateCode: text("affiliate_code"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
@@ -263,3 +265,72 @@ export const onboardingEmails = pgTable("onboarding_emails", {
 
 export type OnboardingEmail = typeof onboardingEmails.$inferSelect;
 export type NewOnboardingEmail = typeof onboardingEmails.$inferInsert;
+
+// Public API keys
+export const apiKeys = pgTable("api_keys", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  name: text("name").notNull().default("Default"),
+  keyHash: text("key_hash").notNull().unique(),
+  keyPrefix: text("key_prefix").notNull(), // first 16 chars for display (lb_live_xxxxxxxx)
+  usageCount: integer("usage_count").notNull().default(0),
+  usageResetAt: timestamp("usage_reset_at").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  revokedAt: timestamp("revoked_at"),
+}, (t) => [
+  index("api_keys_user_idx").on(t.userId),
+  index("api_keys_hash_idx").on(t.keyHash),
+]);
+export type ApiKey = typeof apiKeys.$inferSelect;
+export type NewApiKey = typeof apiKeys.$inferInsert;
+
+// ─── Affiliate Program ───────────────────────────────────────────────────────
+
+export const affiliates = pgTable("affiliates", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  email: text("email").notNull().unique(),
+  code: text("code").notNull().unique(),
+  status: text("status").notNull().default("pending"), // 'pending' | 'approved' | 'rejected'
+  pendingEarnings: real("pending_earnings").notNull().default(0),
+  paidEarnings: real("paid_earnings").notNull().default(0),
+  notes: text("notes"),
+  audience: text("audience"),
+  howToPromote: text("how_to_promote"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  index("affiliates_code_idx").on(t.code),
+  index("affiliates_email_idx").on(t.email),
+]);
+
+export const affiliateEarnings = pgTable("affiliate_earnings", {
+  id: text("id").primaryKey(),
+  affiliateId: text("affiliate_id").notNull().references(() => affiliates.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  invoiceId: text("invoice_id").notNull().unique(),
+  amountUsd: real("amount_usd").notNull(),
+  paidOut: boolean("paid_out").notNull().default(false),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  index("affiliate_earnings_affiliate_idx").on(t.affiliateId),
+  index("affiliate_earnings_user_idx").on(t.userId),
+]);
+
+export const affiliatePayouts = pgTable("affiliate_payouts", {
+  id: text("id").primaryKey(),
+  affiliateId: text("affiliate_id").notNull().references(() => affiliates.id, { onDelete: "cascade" }),
+  amountUsd: real("amount_usd").notNull(),
+  method: text("method").notNull().default("stripe"), // 'stripe' | 'paypal'
+  notes: text("notes"),
+  paidAt: timestamp("paid_at").notNull().defaultNow(),
+}, (t) => [
+  index("affiliate_payouts_affiliate_idx").on(t.affiliateId),
+]);
+
+export type Affiliate = typeof affiliates.$inferSelect;
+export type NewAffiliate = typeof affiliates.$inferInsert;
+export type AffiliateEarning = typeof affiliateEarnings.$inferSelect;
+export type NewAffiliateEarning = typeof affiliateEarnings.$inferInsert;
+export type AffiliatePayout = typeof affiliatePayouts.$inferSelect;
+export type NewAffiliatePayout = typeof affiliatePayouts.$inferInsert;

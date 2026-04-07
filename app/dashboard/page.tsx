@@ -6,6 +6,7 @@ import { useUser, UserButton } from "@clerk/nextjs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { ApiAccessManager } from "@/components/api-access-manager";
 import { AutonomousCoverageBadge } from "@/components/autonomous-coverage-badge";
 import { AutonomousCarrierCard, type AutonomousCarrierData, type CarrierRiskData } from "@/components/autonomous-carrier-card";
 import { AutonomousCorridorMap } from "@/components/autonomous-corridor-map";
@@ -1334,6 +1335,11 @@ export default function DashboardPage() {
             </div>
             <AutonomousCorridorMap />
           </section>
+        )}
+
+        {/* API Access */}
+        {activeTab === "lanes" && (
+          <ApiAccessManager />
         )}
       </main>
 
