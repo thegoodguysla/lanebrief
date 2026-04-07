@@ -10,6 +10,7 @@ import { AutonomousCoverageBadge } from "@/components/autonomous-coverage-badge"
 import { AutonomousCarrierCard, type AutonomousCarrierData, type CarrierRiskData } from "@/components/autonomous-carrier-card";
 import { AutonomousCorridorMap } from "@/components/autonomous-corridor-map";
 import { RoiDashboard } from "@/components/roi-dashboard";
+import { UpgradeGateModal } from "@/components/upgrade-gate-modal";
 import Link from "next/link";
 
 // Detect if a lane crosses the US-MX or US-CA border for tariff impact flagging
@@ -634,69 +635,9 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      {/* Upgrade modal — contextual copy per gate */}
+      {/* Upgrade modal — contextual copy per gate, with A/B CTA variants + analytics tracking */}
       {upgradeContext !== null && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-          <div className="bg-background border border-border rounded-xl shadow-xl max-w-sm w-full p-6 space-y-4">
-            <div className="space-y-1">
-              {upgradeContext === "lane_limit" && (
-                <>
-                  <h2 className="font-semibold text-lg">You have 3 lanes — the free limit</h2>
-                  <p className="text-sm text-muted-foreground">
-                    Upgrade to Pro for unlimited lanes, 7-day rate forecasts, and carrier risk scores on every lane.
-                  </p>
-                </>
-              )}
-              {upgradeContext === "forecast" && (
-                <>
-                  <h2 className="font-semibold text-lg">See where rates are heading</h2>
-                  <p className="text-sm text-muted-foreground">
-                    7-day rate forecasts show you whether to lock in capacity now or wait. Unlock before your competition does.
-                  </p>
-                </>
-              )}
-              {upgradeContext === "carrier_risk" && (
-                <>
-                  <h2 className="font-semibold text-lg">You&apos;ve used your 5 free risk scores today</h2>
-                  <p className="text-sm text-muted-foreground">
-                    Pro gives you unlimited carrier risk scores — know which carriers are double-brokering risks before you tender.
-                  </p>
-                </>
-              )}
-            </div>
-            <div className="rounded-lg bg-primary/5 border border-primary/20 px-4 py-3 text-sm space-y-1">
-              <div className="font-semibold text-primary">LaneBrief Pro</div>
-              <ul className="text-muted-foreground space-y-0.5 text-xs">
-                <li>✓ Unlimited lanes</li>
-                <li>✓ 7-day rate forecasts on all lanes</li>
-                <li>✓ Unlimited carrier risk scores</li>
-                <li>✓ Rate alerts + tariff flags</li>
-              </ul>
-            </div>
-            <div className="space-y-2">
-              <Button
-                className="w-full bg-primary text-primary-foreground hover:bg-primary/90"
-                onClick={() => handleUpgradeCheckout(false)}
-                disabled={checkoutLoading}
-              >
-                {checkoutLoading ? "Redirecting…" : upgradeContext === "carrier_risk" ? "Get unlimited scores — $79/mo" : upgradeContext === "forecast" ? "Unlock forecasts — $79/mo" : "Upgrade to Pro — $79/mo"}
-              </Button>
-              <button
-                className="w-full text-xs text-muted-foreground hover:text-foreground text-center"
-                onClick={() => handleUpgradeCheckout(true)}
-                disabled={checkoutLoading}
-              >
-                Annual: $699/yr — saves $249
-              </button>
-            </div>
-            <button
-              className="w-full text-xs text-muted-foreground hover:text-foreground text-center"
-              onClick={() => setUpgradeContext(null)}
-            >
-              Maybe later
-            </button>
-          </div>
-        </div>
+        <UpgradeGateModal context={upgradeContext} onDismiss={() => setUpgradeContext(null)} />
       )}
       {/* Upgraded banner */}
       {justUpgraded && (
