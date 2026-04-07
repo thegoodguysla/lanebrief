@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { trackEvent } from "@/lib/analytics";
 
 type WizardStep = 1 | 2 | 3 | 4;
 
@@ -73,6 +74,10 @@ export default function OnboardingPage() {
       const primaryData = await primaryRes.json();
       const laneId: string = primaryData.lane.id;
       setPrimaryLaneId(laneId);
+
+      trackEvent("sign_up", { method: "clerk" });
+      trackEvent("trial_started");
+      trackEvent("lane_added", { source: "onboarding" });
 
       // Auto-enable alert at 5% threshold on primary lane
       fetch("/api/user/alert-opt-in", {

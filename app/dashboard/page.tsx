@@ -12,6 +12,7 @@ import { AutonomousCorridorMap } from "@/components/autonomous-corridor-map";
 import { RoiDashboard } from "@/components/roi-dashboard";
 import { UpgradeGateModal } from "@/components/upgrade-gate-modal";
 import Link from "next/link";
+import { trackEvent } from "@/lib/analytics";
 
 // Detect if a lane crosses the US-MX or US-CA border for tariff impact flagging
 // High-risk city keywords sourced from Research Cycle 4 Market Intelligence Report (April 2026)
@@ -482,6 +483,7 @@ export default function DashboardPage() {
       }
       setOrigin("");
       setDestination("");
+      trackEvent("lane_added", { source: "dashboard" });
       await loadLanes();
     } finally {
       setAdding(false);

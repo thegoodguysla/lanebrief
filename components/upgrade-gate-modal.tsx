@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { track } from "@vercel/analytics/react";
 import { Button } from "@/components/ui/button";
+import { trackEvent } from "@/lib/analytics";
 
 export type GateContext = "lane_limit" | "forecast" | "carrier_risk";
 
@@ -70,12 +71,16 @@ export function UpgradeGateModal({ context, onDismiss }: UpgradeGateModalProps) 
     if (!firedShown.current) {
       firedShown.current = true;
       track("gate_shown", { gate: context, variant });
+      trackEvent("paywall_gate_shown", { gate: context, variant });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [context]);
 
   async function handleCheckout(annual: boolean) {
-    track("gate_converted", { gate: context, variant, plan: annual ? "annual" : "monthly" });
+    const plan = annual ? "annual" : "monthly";
+    track("gate_converted", { gate: context, variant, plan });
+    trackEvent("upgrade_clicked", { gate: context, variant, plan });
+    trackEvent("paywall_gate_converted", { gate: context, variant, plan });
     setLoading(true);
     try {
       const { STRIPE_PRICES } = await import("@/lib/stripe");
@@ -86,7 +91,10 @@ export function UpgradeGateModal({ context, onDismiss }: UpgradeGateModalProps) 
         body: JSON.stringify({ priceId }),
       });
       const data = await res.json();
-      if (data.url) window.location.href = data.url;
+      if (data.url) {
+        trackEvent("checkout_started", { gate: context, plan });
+        window.location.href = data.url;
+      }
     } finally {
       setLoading(false);
     }
