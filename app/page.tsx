@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import { TestimonialCard, TestimonialPlaceholder } from "@/components/testimonial-card";
 import { sendGAEvent } from "@next/third-parties/google";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -58,6 +59,18 @@ export default function LaneBriefLanding() {
 
   // A/B test: Scout pricing — "control" ($199) vs "test" ($299)
   const [priceVariant, setPriceVariant] = useState<"control" | "test">("control");
+
+  // Testimonials
+  const [testimonials, setTestimonials] = useState<{ id: string; rating: number; text: string | null; name: string; title: string | null }[]>([]);
+  const testimonialsFetched = useRef(false);
+  useEffect(() => {
+    if (testimonialsFetched.current) return;
+    testimonialsFetched.current = true;
+    fetch("/api/testimonials")
+      .then((r) => r.json())
+      .then((d) => setTestimonials(d.testimonials ?? []))
+      .catch(() => {});
+  }, []);
 
   // ROI calculator state
   const [roiLoads, setRoiLoads] = useState("20");
@@ -1448,6 +1461,23 @@ export default function LaneBriefLanding() {
             <p className="mt-4 text-xs text-muted-foreground">
               No spam. Just your brief. Reply to cancel any time.
             </p>
+          </div>
+        </section>
+
+        {/* ── Testimonials ─────────────────────────────────────────────── */}
+        <section aria-labelledby="testimonials-heading" className="py-16 px-4 bg-card/30">
+          <div className="max-w-5xl mx-auto">
+            <h2 id="testimonials-heading" className="text-2xl sm:text-3xl font-bold text-center mb-2">
+              What brokers are saying
+            </h2>
+            <p className="text-center text-muted-foreground text-sm mb-8">Real feedback from LaneBrief Pro users</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+              {testimonials.length === 0
+                ? [0, 1, 2].map((i) => <TestimonialPlaceholder key={i} />)
+                : testimonials.slice(0, 3).map((t) => (
+                    <TestimonialCard key={t.id} rating={t.rating} text={t.text} name={t.name} title={t.title} />
+                  ))}
+            </div>
           </div>
         </section>
 

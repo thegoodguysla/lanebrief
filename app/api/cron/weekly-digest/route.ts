@@ -5,6 +5,7 @@ import { generateText } from "ai";
 import { Resend } from "resend";
 import { randomUUID } from "crypto";
 import { detectUSMXCrossing, getPatternDelayResult, type BorderDelayResult } from "@/lib/border-delay";
+import { sendSms, buildWeeklySummarySms } from "@/lib/twilio";
 
 // Vercel Cron: every Monday 8am ET (13:00 UTC)
 // vercel.json schedule: "0 13 * * 1"
@@ -356,10 +357,19 @@ export async function GET(req: Request) {
   // Load only opted-in users
   const userIds = [...new Set(allLanes.map((l) => l.userId))];
   const userRows = await db
-    .select({ id: users.id, email: users.email, alertOptIn: users.alertOptIn, alertMode: users.alertMode })
+    .select({
+      id: users.id,
+      email: users.email,
+      alertOptIn: users.alertOptIn,
+      alertMode: users.alertMode,
+      phone: users.phone,
+      phoneVerified: users.phoneVerified,
+      smsWeeklyOptIn: users.smsWeeklyOptIn,
+    })
     .from(users)
     .where(inArray(users.id, userIds));
 
+  const userMap = new Map(userRows.map((u) => [u.id, u]));
   const userEmailMap = new Map(userRows.map((u) => [u.id, u.email]));
   // weekly-digest only fires for users who opted in AND chose digest mode (or left it at default)
   const optedInUserIds = new Set(userRows.filter((u) => u.alertOptIn && u.alertMode === "digest").map((u) => u.id));
@@ -580,6 +590,23 @@ export async function GET(req: Request) {
       emailsSent++;
     } catch (err) {
       console.error(`[weekly-digest] Failed to send to ${email}:`, err);
+    }
+
+    // Weekly SMS summary — fire-and-forget
+    const u = userMap.get(userId);
+    if (u?.smsWeeklyOptIn && u.phoneVerified && u.phone) {
+      const laneCount = alerts.length;
+      const topAlert = alerts.find((a) => a.deltaPct !== null && a.deltaPct !== undefined);
+      sendSms(
+        u.phone,
+        buildWeeklySummarySms({
+          laneCount,
+          topLane: topAlert ? `${topAlert.origin}-${topAlert.destination}` : undefined,
+          topDelta: topAlert?.deltaPct ?? undefined,
+        }),
+      ).catch((err) => {
+        console.error(`[weekly-digest] SMS failed for ${userId}:`, err);
+      });
     }
   }
 

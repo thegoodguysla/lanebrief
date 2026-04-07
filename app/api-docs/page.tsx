@@ -1,6 +1,10 @@
 import Link from "next/link";
-import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
+
+// buttonVariants cannot be imported from the client-only Button module in server components.
+// Using the equivalent Tailwind classes directly.
+const btnBase = "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground shadow hover:bg-primary/90 h-9 px-4 py-2";
+const btnSm = "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 bg-primary text-primary-foreground shadow hover:bg-primary/90 h-8 rounded-md px-3 text-xs";
 
 export const metadata = {
   title: "API Documentation — LaneBrief",
@@ -95,7 +99,7 @@ export default function ApiDocsPage() {
         <div className="max-w-4xl mx-auto px-4 h-14 flex items-center justify-between">
           <Link href="/" className="font-semibold tracking-tight">LaneBrief</Link>
           <div className="flex items-center gap-3">
-            <Link href="/dashboard" className={cn(buttonVariants({ size: "sm" }))}>
+            <Link href="/dashboard" className={cn(btnSm)}>
               Dashboard
             </Link>
           </div>
@@ -110,7 +114,7 @@ export default function ApiDocsPage() {
           <p className="text-muted-foreground text-lg max-w-2xl">
             Embed real-time freight rates, 7-day forecasts, and carrier risk scores directly into your TMS, spreadsheets, or internal tools.
           </p>
-          <Link href="/dashboard" className={cn(buttonVariants(), "mt-2 inline-flex")}>
+          <Link href="/dashboard" className={cn(btnBase, "mt-2")}>
             Get your API key →
           </Link>
         </div>
@@ -261,7 +265,7 @@ function getLaneBriefRate() {
           <p className="text-sm text-muted-foreground">
             Generate your API key from the dashboard. Pro plan includes 1,000 requests/month.
           </p>
-          <Link href="/dashboard" className={cn(buttonVariants(), "inline-flex")}>
+          <Link href="/dashboard" className={cn(btnBase)}>
             Get your API key →
           </Link>
         </div>

@@ -20,6 +20,11 @@ export const users = pgTable("users", {
   alertOptIn: boolean("alert_opt_in").notNull().default(false),
   alertMode: text("alert_mode").notNull().default("digest"), // 'instant' | 'digest'
   autonomousBeta: boolean("autonomous_beta").notNull().default(false),
+  // SMS alerts
+  phone: text("phone"), // E.164 format e.g. +15551234567
+  phoneVerified: boolean("phone_verified").notNull().default(false),
+  smsAlertOptIn: boolean("sms_alert_opt_in").notNull().default(false),
+  smsWeeklyOptIn: boolean("sms_weekly_opt_in").notNull().default(false),
   // Billing / subscription
   stripeCustomerId: text("stripe_customer_id"),
   planTier: text("plan_tier").notNull().default("free"), // 'free' | 'pro'
@@ -426,3 +431,51 @@ export type Team = typeof teams.$inferSelect;
 export type NewTeam = typeof teams.$inferInsert;
 export type TeamMember = typeof teamMembers.$inferSelect;
 export type NewTeamMember = typeof teamMembers.$inferInsert;
+
+// ─── Zapier Integration ───────────────────────────────────────────────────────
+
+// One row per user-per-event subscription (Zapier REST hooks)
+export const zapierHooks = pgTable("zapier_hooks", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  keyId: text("key_id").notNull().references(() => apiKeys.id, { onDelete: "cascade" }),
+  // Event types: 'rate_alert' | 'weekly_report' | 'carrier_risk'
+  eventType: text("event_type").notNull(),
+  hookUrl: text("hook_url").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  index("zapier_hooks_user_event_idx").on(t.userId, t.eventType),
+]);
+
+// Ring buffer of recent alert events for Zapier polling (kept 7 days)
+export const zapierAlertEvents = pgTable("zapier_alert_events", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  eventType: text("event_type").notNull(), // 'rate_alert' | 'weekly_report'
+  payload: text("payload").notNull(), // JSON stringified
+  firedAt: timestamp("fired_at").notNull().defaultNow(),
+}, (t) => [
+  index("zapier_alert_events_user_event_idx").on(t.userId, t.eventType),
+  index("zapier_alert_events_fired_idx").on(t.firedAt),
+]);
+
+export type ZapierHook = typeof zapierHooks.$inferSelect;
+export type NewZapierHook = typeof zapierHooks.$inferInsert;
+export type ZapierAlertEvent = typeof zapierAlertEvents.$inferSelect;
+export type NewZapierAlertEvent = typeof zapierAlertEvents.$inferInsert;
+
+// ─── SMS Phone Verification ───────────────────────────────────────────────────
+
+export const smsVerificationCodes = pgTable("sms_verification_codes", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  phone: text("phone").notNull(), // E.164 format
+  code: text("code").notNull(),   // 6-digit code (plain — short-lived)
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  index("sms_codes_user_idx").on(t.userId),
+]);
+
+export type SmsVerificationCode = typeof smsVerificationCodes.$inferSelect;
+export type NewSmsVerificationCode = typeof smsVerificationCodes.$inferInsert;

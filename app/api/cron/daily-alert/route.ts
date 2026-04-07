@@ -1,9 +1,10 @@
 import { getDb } from "@/lib/db";
-import { users, lanes, rateSnapshots } from "@/lib/db/schema";
-import { desc, inArray } from "drizzle-orm";
+import { users, lanes, rateSnapshots, zapierHooks, zapierAlertEvents } from "@/lib/db/schema";
+import { desc, inArray, eq } from "drizzle-orm";
 import { generateText } from "ai";
 import { Resend } from "resend";
 import { randomUUID } from "crypto";
+import { sendSms, buildRateAlertSms } from "@/lib/twilio";
 
 // Vercel Cron: daily at 10am ET (15:00 UTC), weekdays only
 // vercel.json schedule: "0 15 * * MON-FRI"
@@ -68,6 +69,8 @@ type LaneRow = {
   alertThresholdPct: number;
   userId: string;
   userEmail: string;
+  userPhone: string | null;
+  smsAlertOptIn: boolean;
 };
 
 async function getAIRateEstimate(
@@ -246,18 +249,34 @@ export async function GET(req: Request) {
   // Load opted-in users only (instant mode)
   const userIds = [...new Set(allLanes.map((l) => l.userId))];
   const userRows = await db
-    .select({ id: users.id, email: users.email, alertOptIn: users.alertOptIn, alertMode: users.alertMode })
+    .select({
+      id: users.id,
+      email: users.email,
+      alertOptIn: users.alertOptIn,
+      alertMode: users.alertMode,
+      phone: users.phone,
+      phoneVerified: users.phoneVerified,
+      smsAlertOptIn: users.smsAlertOptIn,
+    })
     .from(users)
     .where(inArray(users.id, userIds));
 
-  const userEmailMap = new Map(userRows.map((u) => [u.id, u.email]));
+  const userMap = new Map(userRows.map((u) => [u.id, u]));
   const optedInUserIds = new Set(
     userRows.filter((u) => u.alertOptIn && u.alertMode === "instant").map((u) => u.id)
   );
 
   const laneRows: LaneRow[] = allLanes
     .filter((l) => optedInUserIds.has(l.userId))
-    .map((l) => ({ ...l, userEmail: userEmailMap.get(l.userId) ?? "" }))
+    .map((l) => {
+      const u = userMap.get(l.userId);
+      return {
+        ...l,
+        userEmail: u?.email ?? "",
+        userPhone: u?.phoneVerified ? (u.phone ?? null) : null,
+        smsAlertOptIn: u?.smsAlertOptIn ?? false,
+      };
+    })
     .filter((l) => l.userEmail !== "");
 
   if (laneRows.length === 0) {
@@ -371,6 +390,60 @@ export async function GET(req: Request) {
       alertsSent++;
     } catch (err) {
       console.error(`[daily-alert] Failed to send alert to ${lane.userEmail}:`, err);
+    }
+
+    // SMS alert — fire-and-forget, never blocks email delivery
+    if (lane.smsAlertOptIn && lane.userPhone) {
+      sendSms(
+        lane.userPhone,
+        buildRateAlertSms({ origin: lane.origin, destination: lane.destination, deltaPct, newRate }),
+      ).catch((err) => {
+        console.error(`[daily-alert] SMS failed for ${lane.userId}:`, err);
+      });
+    }
+
+    // Fire Zapier webhooks for this user if they have a rate_alert subscription
+    const zapierPayload = {
+      lane: `${lane.origin} → ${lane.destination}`,
+      origin: lane.origin,
+      destination: lane.destination,
+      equipment: lane.equipment,
+      rate_per_mile: newRate,
+      change_pct: Math.round(deltaPct * 10) / 10,
+      direction: deltaPct >= 0 ? "up" : "down",
+      threshold_pct: lane.alertThresholdPct,
+      forecast: deltaPct >= 0 ? "up" : "down",
+      tariff_flag: tariffFlag !== null,
+      triggered_at: new Date().toISOString(),
+    };
+
+    // Persist event for polling triggers
+    const eventId = randomUUID();
+    try {
+      await db.insert(zapierAlertEvents).values({
+        id: eventId,
+        userId: lane.userId,
+        eventType: "rate_alert",
+        payload: JSON.stringify(zapierPayload),
+      });
+    } catch (err) {
+      console.error(`[daily-alert] Failed to store Zapier event for ${lane.userId}:`, err);
+    }
+
+    // Fire REST hooks (fire-and-forget — Zapier retries on failure)
+    const hooks = await db
+      .select({ hookUrl: zapierHooks.hookUrl })
+      .from(zapierHooks)
+      .where(eq(zapierHooks.userId, lane.userId));
+
+    for (const hook of hooks.filter((h) => h.hookUrl)) {
+      fetch(hook.hookUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...zapierPayload, id: eventId }),
+      }).catch((err) => {
+        console.error(`[daily-alert] Zapier webhook delivery failed to ${hook.hookUrl}:`, err);
+      });
     }
   }
 

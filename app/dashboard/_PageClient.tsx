@@ -163,6 +163,18 @@ export default function DashboardPage() {
   const [savingOptIn, setSavingOptIn] = useState(false);
   const [savingMode, setSavingMode] = useState(false);
   const [savingThresholdFor, setSavingThresholdFor] = useState<string | null>(null);
+  // SMS alerts state
+  const [phone, setPhone] = useState("");
+  const [phoneVerified, setPhoneVerified] = useState(false);
+  const [smsAlertOptIn, setSmsAlertOptIn] = useState(false);
+  const [smsWeeklyOptIn, setSmsWeeklyOptIn] = useState(false);
+  const [phoneInput, setPhoneInput] = useState("");
+  const [verifyStep, setVerifyStep] = useState<"idle" | "sent" | "verified">("idle");
+  const [verifyCode, setVerifyCode] = useState("");
+  const [sendingCode, setSendingCode] = useState(false);
+  const [confirmingCode, setConfirmingCode] = useState(false);
+  const [smsError, setSmsError] = useState("");
+  const [savingSms, setSavingSms] = useState(false);
   const [avCoverage, setAvCoverage] = useState<Record<string, AvCoverageData | "loading">>({});
   const [expandedAvLane, setExpandedAvLane] = useState<string | null>(null);
   const [tenderScores, setTenderScores] = useState<Record<string, TenderScore | "loading">>({});
@@ -392,6 +404,13 @@ export default function DashboardPage() {
         if (userData.user?.trialEndsAt) {
           setTrialEndsAt(new Date(userData.user.trialEndsAt));
         }
+        // SMS state
+        setPhone(userData.user?.phone ?? "");
+        setPhoneInput(userData.user?.phone ?? "");
+        setPhoneVerified(userData.user?.phoneVerified ?? false);
+        setSmsAlertOptIn(userData.user?.smsAlertOptIn ?? false);
+        setSmsWeeklyOptIn(userData.user?.smsWeeklyOptIn ?? false);
+        if (userData.user?.phoneVerified) setVerifyStep("verified");
         return Promise.all([
           fetch("/api/lanes").then((r) => r.json()),
           fetch("/api/briefs").then((r) => r.json()),
@@ -556,6 +575,73 @@ export default function DashboardPage() {
       if (res.ok) setAlertMode(mode);
     } finally {
       setSavingMode(false);
+    }
+  }
+
+  async function sendVerificationCode() {
+    setSmsError("");
+    setSendingCode(true);
+    try {
+      const res = await fetch("/api/sms/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: phoneInput }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setSmsError(data.error ?? "Failed to send code"); return; }
+      setVerifyStep("sent");
+    } finally {
+      setSendingCode(false);
+    }
+  }
+
+  async function confirmVerificationCode() {
+    setSmsError("");
+    setConfirmingCode(true);
+    try {
+      const res = await fetch("/api/sms/confirm", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: verifyCode }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setSmsError(data.error ?? "Invalid code"); return; }
+      setPhone(data.phone);
+      setPhoneVerified(true);
+      setVerifyStep("verified");
+      setVerifyCode("");
+    } finally {
+      setConfirmingCode(false);
+    }
+  }
+
+  async function toggleSmsAlert() {
+    const next = !smsAlertOptIn;
+    setSavingSms(true);
+    try {
+      const res = await fetch("/api/user/sms-settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ smsAlertOptIn: next }),
+      });
+      if (res.ok) setSmsAlertOptIn(next);
+    } finally {
+      setSavingSms(false);
+    }
+  }
+
+  async function toggleSmsWeekly() {
+    const next = !smsWeeklyOptIn;
+    setSavingSms(true);
+    try {
+      const res = await fetch("/api/user/sms-settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ smsWeeklyOptIn: next }),
+      });
+      if (res.ok) setSmsWeeklyOptIn(next);
+    } finally {
+      setSavingSms(false);
     }
   }
 
@@ -789,6 +875,92 @@ export default function DashboardPage() {
             )}
           </div>
         </div>
+
+        {/* SMS Alerts card — shown when email alerts are on (instant mode) */}
+        {alertOptIn && alertMode === "instant" && (
+          <div className="rounded-lg border border-border px-4 py-3 w-full">
+            <p className="text-sm font-medium mb-1">SMS Rate Alerts <span className="text-xs font-normal text-muted-foreground ml-1">Pro</span></p>
+            <p className="text-xs text-muted-foreground mb-3">Get a text when a lane hits your threshold. Near-100% read rate vs email.</p>
+
+            {/* Phone verification */}
+            {verifyStep !== "verified" ? (
+              <div className="flex flex-col gap-2">
+                <div className="flex gap-2">
+                  <input
+                    type="tel"
+                    placeholder="+1 555 000 0000"
+                    value={phoneInput}
+                    onChange={(e) => setPhoneInput(e.target.value)}
+                    className="flex-1 rounded-md border border-border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                  />
+                  <button
+                    onClick={sendVerificationCode}
+                    disabled={sendingCode || !phoneInput.trim()}
+                    className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground disabled:opacity-50"
+                  >
+                    {sendingCode ? "Sending…" : verifyStep === "sent" ? "Resend" : "Send code"}
+                  </button>
+                </div>
+                {verifyStep === "sent" && (
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      maxLength={6}
+                      placeholder="6-digit code"
+                      value={verifyCode}
+                      onChange={(e) => setVerifyCode(e.target.value.replace(/\D/g, ""))}
+                      className="flex-1 rounded-md border border-border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+                    />
+                    <button
+                      onClick={confirmVerificationCode}
+                      disabled={confirmingCode || verifyCode.length !== 6}
+                      className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground disabled:opacity-50"
+                    >
+                      {confirmingCode ? "Verifying…" : "Verify"}
+                    </button>
+                  </div>
+                )}
+                {smsError && <p className="text-xs text-destructive">{smsError}</p>}
+              </div>
+            ) : (
+              <div className="flex flex-col gap-2">
+                <p className="text-xs text-primary font-medium">✓ {phone} verified</p>
+                <button
+                  onClick={() => { setVerifyStep("idle"); setPhoneVerified(false); }}
+                  className="text-xs text-muted-foreground hover:text-foreground w-fit"
+                >
+                  Change number
+                </button>
+                {/* SMS opt-in toggles */}
+                <div className="flex flex-col gap-2 mt-1">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-xs text-muted-foreground">Rate alert SMS</p>
+                    <button
+                      onClick={toggleSmsAlert}
+                      disabled={savingSms}
+                      aria-pressed={smsAlertOptIn}
+                      className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none ${smsAlertOptIn ? "bg-primary" : "bg-muted"} disabled:opacity-50`}
+                    >
+                      <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${smsAlertOptIn ? "translate-x-4" : "translate-x-0"}`} />
+                    </button>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-xs text-muted-foreground">Weekly summary SMS</p>
+                    <button
+                      onClick={toggleSmsWeekly}
+                      disabled={savingSms}
+                      aria-pressed={smsWeeklyOptIn}
+                      className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none ${smsWeeklyOptIn ? "bg-primary" : "bg-muted"} disabled:opacity-50`}
+                    >
+                      <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${smsWeeklyOptIn ? "translate-x-4" : "translate-x-0"}`} />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Tab bar */}
         <div className="flex gap-0.5 rounded-lg border border-border bg-muted/40 p-0.5 w-fit">

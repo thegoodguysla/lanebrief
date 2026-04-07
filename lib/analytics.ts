@@ -12,7 +12,8 @@ export type AnalyticsEvent =
   | "demo_booked"
   | "paywall_gate_shown"
   | "paywall_gate_converted"
-  | "feature_used";
+  | "feature_used"
+  | "annual_upsell_clicked";
 
 export function trackEvent(event: AnalyticsEvent, properties?: Record<string, unknown>) {
   sendGAEvent("event", event, properties ?? {});
