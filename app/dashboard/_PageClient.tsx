@@ -12,6 +12,7 @@ import { AutonomousCarrierCard, type AutonomousCarrierData, type CarrierRiskData
 import { AutonomousCorridorMap } from "@/components/autonomous-corridor-map";
 import { RoiDashboard } from "@/components/roi-dashboard";
 import { UpgradeGateModal } from "@/components/upgrade-gate-modal";
+import { CancellationSurveyModal } from "@/components/cancellation-survey-modal";
 import Link from "next/link";
 import { trackEvent } from "@/lib/analytics";
 
@@ -201,7 +202,18 @@ export default function DashboardPage() {
   const [annualUpsellDismissed, setAnnualUpsellDismissed] = useState(false);
   const [switchingToAnnual, setSwitchingToAnnual] = useState(false);
   const [annualSwitchMessage, setAnnualSwitchMessage] = useState<string | null>(null);
+  const [showCancelModal, setShowCancelModal] = useState(false);
+  const [managingBilling, setManagingBilling] = useState(false);
+  // Browser push notifications
+  const [pushAlertOptIn, setPushAlertOptIn] = useState(false);
+  const [pushWeeklyOptIn, setPushWeeklyOptIn] = useState(false);
+  const [pushTrialOptIn, setPushTrialOptIn] = useState(false);
+  const [pushPermission, setPushPermission] = useState<NotificationPermission | "unsupported">("default");
+  const [savingPush, setSavingPush] = useState(false);
+  const [pushSubscribed, setPushSubscribed] = useState(false);
   const [teamMembers, setTeamMembers] = useState<Array<{id: string, email: string, status: string}>>([]);
+  const [integrations, setIntegrations] = useState<Array<{tool: string; status: string}>>([]);
+  const [connectingTool, setConnectingTool] = useState<string | null>(null);
   const [teamLoaded, setTeamLoaded] = useState(false);
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviting, setInviting] = useState(false);
@@ -411,6 +423,16 @@ export default function DashboardPage() {
         setSmsAlertOptIn(userData.user?.smsAlertOptIn ?? false);
         setSmsWeeklyOptIn(userData.user?.smsWeeklyOptIn ?? false);
         if (userData.user?.phoneVerified) setVerifyStep("verified");
+        // Push notification prefs
+        setPushAlertOptIn(userData.user?.pushAlertOptIn ?? false);
+        setPushWeeklyOptIn(userData.user?.pushWeeklyOptIn ?? false);
+        setPushTrialOptIn(userData.user?.pushTrialOptIn ?? false);
+        // Check current browser permission state
+        if (typeof Notification !== "undefined") {
+          setPushPermission(Notification.permission);
+        } else {
+          setPushPermission("unsupported");
+        }
         return Promise.all([
           fetch("/api/lanes").then((r) => r.json()),
           fetch("/api/briefs").then((r) => r.json()),
@@ -428,6 +450,7 @@ export default function DashboardPage() {
         setBriefs(briefsData.briefs ?? []);
         setInitialized(true);
         fetch("/api/reports/referral-count").then((r) => r.json()).then((d) => setReferralCount(d.count ?? 0)).catch(() => {});
+        fetch("/api/user/integrations").then((r) => r.json()).then((d) => setIntegrations(d.connections ?? [])).catch(() => {});
         fetchAvCoverage(loadedLanes.map((l) => l.id));
         fetchTenderScores(loadedLanes.map((l) => l.id));
         fetchForecasts(loadedLanes.map((l) => l.id));
@@ -739,6 +762,25 @@ export default function DashboardPage() {
       {upgradeContext !== null && (
         <UpgradeGateModal context={upgradeContext} onDismiss={() => setUpgradeContext(null)} />
       )}
+      {/* Cancellation exit survey — shown before redirecting to billing portal cancel flow */}
+      {showCancelModal && (
+        <CancellationSurveyModal
+          onConfirmCancel={async () => {
+            setShowCancelModal(false);
+            setManagingBilling(true);
+            try {
+              const res = await fetch("/api/billing-portal", { method: "POST" });
+              const data = await res.json();
+              if (data.url) window.location.href = data.url;
+            } catch {
+              // ignore
+            } finally {
+              setManagingBilling(false);
+            }
+          }}
+          onKeepPro={() => setShowCancelModal(false)}
+        />
+      )}
       {/* Upgraded banner */}
       {justUpgraded && (
         <div className="bg-primary/10 border-b border-primary/20 px-4 py-2 text-sm text-center text-primary font-medium">
@@ -1022,13 +1064,42 @@ export default function DashboardPage() {
                       {isPro ? "Pro Monthly" : "Free"}
                     </p>
                   </div>
-                  {!isPro && (
+                  {!isPro ? (
                     <Link
                       href="/pricing"
                       className="text-xs text-primary underline underline-offset-2 hover:text-primary/80 transition-colors"
                     >
                       Upgrade to Pro
                     </Link>
+                  ) : (
+                    <div className="flex items-center gap-3">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={managingBilling}
+                        onClick={async () => {
+                          setManagingBilling(true);
+                          try {
+                            const res = await fetch("/api/billing-portal", { method: "POST" });
+                            const data = await res.json();
+                            if (data.url) window.location.href = data.url;
+                          } catch {
+                            // ignore
+                          } finally {
+                            setManagingBilling(false);
+                          }
+                        }}
+                      >
+                        {managingBilling ? "Loading…" : "Manage plan"}
+                      </Button>
+                      <button
+                        type="button"
+                        className="text-xs text-muted-foreground hover:text-destructive transition-colors underline underline-offset-2"
+                        onClick={() => setShowCancelModal(true)}
+                      >
+                        Cancel subscription
+                      </button>
+                    </div>
                   )}
                 </div>
               </div>
@@ -1189,6 +1260,178 @@ export default function DashboardPage() {
                   )}
                 </div>
               )}
+            </div>
+
+            {/* Browser Push Notifications */}
+            <div className="space-y-3">
+              <h2 className="text-sm font-medium uppercase tracking-wider text-muted-foreground">Browser Notifications</h2>
+              <div className="rounded-lg border border-border p-4 space-y-4">
+                {pushPermission === "unsupported" ? (
+                  <p className="text-xs text-muted-foreground">Browser notifications are not supported in this browser.</p>
+                ) : pushPermission === "denied" ? (
+                  <p className="text-xs text-muted-foreground">
+                    Notifications are blocked. To enable, click the lock icon in your browser address bar and allow notifications for lanebrief.com.
+                  </p>
+                ) : (
+                  <>
+                    {pushPermission === "default" && (
+                      <div className="space-y-2">
+                        <p className="text-sm font-medium">Get rate alerts in your browser</p>
+                        <p className="text-xs text-muted-foreground">
+                          Instant notifications when your lanes move — no email required.
+                        </p>
+                        <Button
+                          size="sm"
+                          disabled={savingPush}
+                          onClick={async () => {
+                            if (!("Notification" in window) || !("serviceWorker" in navigator)) return;
+                            setSavingPush(true);
+                            try {
+                              const permission = await Notification.requestPermission();
+                              setPushPermission(permission);
+                              if (permission !== "granted") return;
+
+                              const vapidRes = await fetch("/api/user/push-subscribe");
+                              const { vapidPublicKey } = await vapidRes.json();
+
+                              const reg = await navigator.serviceWorker.ready;
+                              const sub = await reg.pushManager.subscribe({
+                                userVisibleOnly: true,
+                                applicationServerKey: vapidPublicKey,
+                              });
+
+                              await fetch("/api/user/push-subscribe", {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ subscription: sub.toJSON() }),
+                              });
+
+                              // Enable all toggles by default
+                              await fetch("/api/user/push-settings", {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ pushAlertOptIn: true, pushWeeklyOptIn: true, pushTrialOptIn: true }),
+                              });
+                              setPushAlertOptIn(true);
+                              setPushWeeklyOptIn(true);
+                              setPushTrialOptIn(true);
+                              setPushSubscribed(true);
+                              trackEvent("push_notifications_enabled", {});
+                            } catch {
+                              // user dismissed or error
+                            } finally {
+                              setSavingPush(false);
+                            }
+                          }}
+                        >
+                          {savingPush ? "Enabling…" : "Enable notifications"}
+                        </Button>
+                      </div>
+                    )}
+
+                    {(pushPermission === "granted") && (
+                      <div className="flex flex-col gap-2">
+                        {[
+                          { key: "pushAlertOptIn" as const, label: "Rate alerts", state: pushAlertOptIn, setter: setPushAlertOptIn },
+                          { key: "pushWeeklyOptIn" as const, label: "Weekly report ready", state: pushWeeklyOptIn, setter: setPushWeeklyOptIn },
+                          { key: "pushTrialOptIn" as const, label: "Trial reminders", state: pushTrialOptIn, setter: setPushTrialOptIn },
+                        ].map(({ key, label, state, setter }) => (
+                          <div key={key} className="flex items-center justify-between gap-3">
+                            <p className="text-xs text-muted-foreground">{label}</p>
+                            <button
+                              disabled={savingPush}
+                              aria-pressed={state}
+                              onClick={async () => {
+                                const next = !state;
+                                setter(next);
+                                setSavingPush(true);
+                                try {
+                                  await fetch("/api/user/push-settings", {
+                                    method: "POST",
+                                    headers: { "Content-Type": "application/json" },
+                                    body: JSON.stringify({ [key]: next }),
+                                  });
+                                } catch {
+                                  setter(!next); // revert
+                                } finally {
+                                  setSavingPush(false);
+                                }
+                              }}
+                              className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors focus:outline-none ${state ? "bg-primary" : "bg-muted"} disabled:opacity-50`}
+                            >
+                              <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${state ? "translate-x-4" : "translate-x-0"}`} />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Integrations */}
+            <div className="space-y-3">
+              <h2 className="text-sm font-medium uppercase tracking-wider text-muted-foreground">Integrations</h2>
+              <div className="rounded-lg border border-border p-4 space-y-4">
+                <p className="text-xs text-muted-foreground">Connect your tools to receive rate alerts in Slack, log rates to Google Sheets, and more.</p>
+                {(["slack", "googlesheets", "hubspot"] as const).map((tool) => {
+                  const labels: Record<string, string> = { slack: "Slack", googlesheets: "Google Sheets", hubspot: "HubSpot" };
+                  const descriptions: Record<string, string> = {
+                    slack: "Post rate alerts to your Slack channel",
+                    googlesheets: "Append every alert as a row in Google Sheets",
+                    hubspot: "Create HubSpot contacts from new leads",
+                  };
+                  const conn = integrations.find((c) => c.tool.toLowerCase() === tool);
+                  const isActive = conn?.status === "ACTIVE";
+                  return (
+                    <div key={tool} className="flex items-center justify-between gap-4">
+                      <div>
+                        <p className="text-sm font-medium">{labels[tool]}</p>
+                        <p className="text-xs text-muted-foreground mt-0.5">{descriptions[tool]}</p>
+                      </div>
+                      {isActive ? (
+                        <button
+                          type="button"
+                          className="text-xs text-muted-foreground hover:text-destructive underline underline-offset-2 transition-colors"
+                          onClick={async () => {
+                            await fetch("/api/user/integrations", {
+                              method: "DELETE",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ tool }),
+                            });
+                            setIntegrations((prev) => prev.filter((c) => c.tool.toLowerCase() !== tool));
+                          }}
+                        >
+                          Disconnect
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={connectingTool === tool}
+                          className="text-xs text-primary underline underline-offset-2 hover:text-primary/80 transition-colors disabled:opacity-50"
+                          onClick={async () => {
+                            setConnectingTool(tool);
+                            try {
+                              const res = await fetch("/api/user/integrations/connect", {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ tool }),
+                              });
+                              const data = await res.json() as { redirectUrl?: string };
+                              if (data.redirectUrl) window.location.href = data.redirectUrl;
+                            } finally {
+                              setConnectingTool(null);
+                            }
+                          }}
+                        >
+                          {connectingTool === tool ? "Connecting…" : "Connect"}
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           </section>
         )}

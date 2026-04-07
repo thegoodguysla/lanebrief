@@ -5,6 +5,8 @@ import { generateText } from "ai";
 import { Resend } from "resend";
 import { randomUUID } from "crypto";
 import { sendSms, buildRateAlertSms } from "@/lib/twilio";
+import { sendPushToUser } from "@/lib/push";
+import { isConnected, postSlackAlert, appendSheetsRow } from "@/lib/composio";
 
 // Vercel Cron: daily at 10am ET (15:00 UTC), weekdays only
 // vercel.json schedule: "0 15 * * MON-FRI"
@@ -71,6 +73,7 @@ type LaneRow = {
   userEmail: string;
   userPhone: string | null;
   smsAlertOptIn: boolean;
+  pushAlertOptIn: boolean;
 };
 
 async function getAIRateEstimate(
@@ -257,6 +260,7 @@ export async function GET(req: Request) {
       phone: users.phone,
       phoneVerified: users.phoneVerified,
       smsAlertOptIn: users.smsAlertOptIn,
+      pushAlertOptIn: users.pushAlertOptIn,
     })
     .from(users)
     .where(inArray(users.id, userIds));
@@ -275,6 +279,7 @@ export async function GET(req: Request) {
         userEmail: u?.email ?? "",
         userPhone: u?.phoneVerified ? (u.phone ?? null) : null,
         smsAlertOptIn: u?.smsAlertOptIn ?? false,
+        pushAlertOptIn: u?.pushAlertOptIn ?? false,
       };
     })
     .filter((l) => l.userEmail !== "");
@@ -401,6 +406,47 @@ export async function GET(req: Request) {
         console.error(`[daily-alert] SMS failed for ${lane.userId}:`, err);
       });
     }
+
+    // Browser push — fire-and-forget
+    if (lane.pushAlertOptIn) {
+      const dir = deltaPct >= 0 ? "Up" : "Down";
+      sendPushToUser(lane.userId, {
+        title: `${lane.origin} → ${lane.destination} rate alert`,
+        body: `${dir} ${Math.abs(deltaPct).toFixed(1)}% this week ($${newRate.toFixed(2)}/mi). Threshold: ${lane.alertThresholdPct}%`,
+        tag: `rate-alert-${lane.laneId}`,
+        url: `https://lanebrief.com/dashboard`,
+        actionLabel: "View brief",
+      }).catch((err) => {
+        console.error(`[daily-alert] Push failed for ${lane.userId}:`, err);
+      });
+    }
+
+    // Composio: Slack + Sheets alerts — fire-and-forget
+    isConnected(lane.userId, "slack").then((connected) => {
+      if (!connected) return;
+      return postSlackAlert(lane.userId, {
+        origin: lane.origin,
+        destination: lane.destination,
+        newRate,
+        deltaPct,
+        insight: estimate.insight,
+      });
+    }).catch((err) => {
+      console.error(`[daily-alert] Composio Slack failed for ${lane.userId}:`, err);
+    });
+
+    isConnected(lane.userId, "googlesheets").then((connected) => {
+      if (!connected) return;
+      return appendSheetsRow(lane.userId, {
+        origin: lane.origin,
+        destination: lane.destination,
+        equipment: lane.equipment,
+        newRate,
+        deltaPct,
+      });
+    }).catch((err) => {
+      console.error(`[daily-alert] Composio Sheets failed for ${lane.userId}:`, err);
+    });
 
     // Fire Zapier webhooks for this user if they have a rate_alert subscription
     const zapierPayload = {
