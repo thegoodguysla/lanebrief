@@ -1,4 +1,8 @@
 import { generateText } from "ai";
+import {
+  isTruckstopConfigured,
+  getBookedRateEstimate,
+} from "@/lib/truckstop";
 
 const MONTH_NAMES = [
   "January", "February", "March", "April", "May", "June",
@@ -14,14 +18,17 @@ type BenchmarkRequest = {
 
 type BenchmarkResponse = {
   market_avg_usd_per_mile: number;
+  market_low_usd_per_mile?: number;
+  market_high_usd_per_mile?: number;
   delta_pct: number;
   verdict: "above_market" | "at_market" | "below_market";
   verdict_label: string;
-  confidence: "ai_estimated";
+  confidence: "truckstop_live" | "ai_estimated";
+  data_source?: string;
   disclaimer: string;
 };
 
-function buildPrompt(origin: string, destination: string, ratePpm: number, equipment: string): string {
+function buildAIPrompt(origin: string, destination: string, ratePpm: number, equipment: string): string {
   const now = new Date();
   const month = MONTH_NAMES[now.getMonth()];
   const year = now.getFullYear();
@@ -47,6 +54,21 @@ Rules:
 - verdict_label: concise, specific (e.g. "Competitive rate for this corridor", "You may be leaving money on the table")`;
 }
 
+function computeVerdict(ratePpm: number, marketAvg: number): {
+  delta_pct: number;
+  verdict: "above_market" | "at_market" | "below_market";
+} {
+  const delta_pct = parseFloat(((ratePpm - marketAvg) / marketAvg * 100).toFixed(1));
+  const verdict = delta_pct > 3 ? "above_market" : delta_pct < -3 ? "below_market" : "at_market";
+  return { delta_pct, verdict };
+}
+
+function verdictLabel(verdict: string, delta_pct: number): string {
+  if (verdict === "above_market") return `${Math.abs(delta_pct).toFixed(0)}% above market — protect your margin`;
+  if (verdict === "below_market") return `${Math.abs(delta_pct).toFixed(0)}% below market — competitive rate`;
+  return "Competitive rate for this corridor";
+}
+
 export async function POST(request: Request) {
   let body: BenchmarkRequest;
   try {
@@ -68,18 +90,40 @@ export async function POST(request: Request) {
     return Response.json({ error: "rate_per_mile must be a positive number" }, { status: 400 });
   }
 
+  // ── Truckstop live data path ─────────────────────────────────────────────
+  if (isTruckstopConfigured()) {
+    try {
+      const result = await getBookedRateEstimate(origin, destination, equipment);
+      const { delta_pct, verdict } = computeVerdict(rate_per_mile, result.ratePerMile);
+
+      return Response.json({
+        market_avg_usd_per_mile: parseFloat(result.ratePerMile.toFixed(2)),
+        ...(result.lowerBound ? { market_low_usd_per_mile: parseFloat(result.lowerBound.toFixed(2)) } : {}),
+        ...(result.upperBound ? { market_high_usd_per_mile: parseFloat(result.upperBound.toFixed(2)) } : {}),
+        delta_pct,
+        verdict,
+        verdict_label: verdictLabel(verdict, delta_pct),
+        confidence: "truckstop_live",
+        data_source: "Truckstop Rate Insights",
+        disclaimer: "Live market data powered by Truckstop Rate Insights.",
+      } satisfies BenchmarkResponse);
+    } catch (err) {
+      // Log and fall through to AI fallback
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error("[benchmark] Truckstop error (falling back to AI):", msg);
+    }
+  }
+
+  // ── AI fallback path ─────────────────────────────────────────────────────
   try {
-    // Routes through Vercel AI Gateway via OIDC (auto on Vercel deployments).
-    // Requires AI Gateway to be enabled in the Vercel project dashboard.
     const { text } = await generateText({
       model: "anthropic/claude-haiku-4.5",
-      prompt: buildPrompt(origin, destination, rate_per_mile, equipment),
+      prompt: buildAIPrompt(origin, destination, rate_per_mile, equipment),
       maxOutputTokens: 256,
     });
 
-    let parsed: Omit<BenchmarkResponse, "confidence" | "disclaimer">;
+    let parsed: Omit<BenchmarkResponse, "confidence" | "disclaimer" | "data_source">;
     try {
-      // Strip markdown code fences if the model wraps the JSON
       let cleaned = text.trim();
       const fenceMatch = cleaned.match(/```(?:json)?\s*([\s\S]*?)```/);
       if (fenceMatch) cleaned = fenceMatch[1].trim();

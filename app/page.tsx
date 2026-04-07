@@ -36,9 +36,13 @@ export default function LaneBriefLanding() {
   const [bmLoading, setBmLoading] = useState(false);
   const [bmResult, setBmResult] = useState<{
     market_avg_usd_per_mile: number;
+    market_low_usd_per_mile?: number;
+    market_high_usd_per_mile?: number;
     delta_pct: number;
     verdict: "above_market" | "at_market" | "below_market";
     verdict_label: string;
+    confidence: "truckstop_live" | "ai_estimated";
+    data_source?: string;
     disclaimer: string;
   } | null>(null);
   const [bmError, setBmError] = useState<string | null>(null);
@@ -639,7 +643,7 @@ export default function LaneBriefLanding() {
                 Is your rate competitive?
               </h2>
               <p className="mt-4 text-muted-foreground max-w-xl mx-auto">
-                Enter your lane and rate. Our AI benchmarks it against current market conditions in seconds.
+                Enter your lane and rate. We benchmark it against live market data in seconds.
               </p>
             </div>
 
@@ -728,15 +732,22 @@ export default function LaneBriefLanding() {
                     )}>
                       <div className="flex items-start justify-between gap-4 flex-wrap mb-3">
                         <div>
-                          <p className={cn(
-                            "font-bold text-lg",
-                            bmResult.verdict === "above_market" && "text-green-400",
-                            bmResult.verdict === "at_market" && "text-primary",
-                            bmResult.verdict === "below_market" && "text-yellow-400",
-                          )}>
-                            {bmResult.verdict_label}
-                          </p>
-                          <p className="text-xs text-muted-foreground mt-1 font-mono">
+                          <div className="flex items-center gap-2 mb-1">
+                            <p className={cn(
+                              "font-bold text-lg",
+                              bmResult.verdict === "above_market" && "text-green-400",
+                              bmResult.verdict === "at_market" && "text-primary",
+                              bmResult.verdict === "below_market" && "text-yellow-400",
+                            )}>
+                              {bmResult.verdict_label}
+                            </p>
+                            {bmResult.confidence === "truckstop_live" && (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-400 border border-blue-500/25 shrink-0">
+                                Live · Truckstop
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-xs text-muted-foreground font-mono">
                             {bmResult.delta_pct > 0 ? "+" : ""}{bmResult.delta_pct.toFixed(1)}% vs market avg
                           </p>
                         </div>
@@ -745,6 +756,11 @@ export default function LaneBriefLanding() {
                           <p className="font-mono font-bold text-xl text-foreground">
                             ${bmResult.market_avg_usd_per_mile.toFixed(2)}<span className="text-sm font-normal text-muted-foreground">/mi</span>
                           </p>
+                          {bmResult.market_low_usd_per_mile && bmResult.market_high_usd_per_mile && (
+                            <p className="text-[11px] text-muted-foreground font-mono mt-0.5">
+                              ${bmResult.market_low_usd_per_mile.toFixed(2)}–${bmResult.market_high_usd_per_mile.toFixed(2)} range
+                            </p>
+                          )}
                         </div>
                       </div>
                       <div className="flex items-center gap-3 text-sm">
