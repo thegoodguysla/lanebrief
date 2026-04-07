@@ -227,3 +227,23 @@ export const carrierRiskCache = pgTable("carrier_risk_cache", {
 
 export type CarrierRiskCache = typeof carrierRiskCache.$inferSelect;
 export type NewCarrierRiskCache = typeof carrierRiskCache.$inferInsert;
+
+// Viral report sharing / referral tracking
+export const reportShares = pgTable("report_shares", {
+  id: text("id").primaryKey(),
+  referrerUserId: text("referrer_user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  referredEmail: text("referred_email").notNull(),
+  shareToken: text("share_token").notNull().unique(),
+  expiresAt: timestamp("expires_at").notNull(),
+  converted: boolean("converted").notNull().default(false),
+  convertedAt: timestamp("converted_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  index("report_shares_referrer_idx").on(t.referrerUserId),
+  index("report_shares_token_idx").on(t.shareToken),
+]);
+
+export type ReportShare = typeof reportShares.$inferSelect;
+export type NewReportShare = typeof reportShares.$inferInsert;

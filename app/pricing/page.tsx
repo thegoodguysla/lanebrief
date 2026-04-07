@@ -208,6 +208,12 @@ export default function PricingPage() {
             >
               {loading === priceId ? "Redirecting..." : "Upgrade to Pro"}
             </Button>
+            <p className="text-center text-xs text-muted-foreground">
+              Want to see it first?{" "}
+              <Link href="/demo" className="text-primary underline underline-offset-2 hover:text-primary/80 transition-colors">
+                Book a 20-min demo →
+              </Link>
+            </p>
           </div>
         </div>
 

@@ -112,7 +112,7 @@ export default function SampleReportPage() {
                     Check your inbox — your LaneBrief Intelligence Report will arrive within 60 seconds.
                     If you don&apos;t see it, check spam.
                   </p>
-                  <div className="pt-2 border-t border-border/40">
+                  <div className="pt-2 border-t border-border/40 space-y-3">
                     <p className="text-sm font-medium mb-3">
                       Want to track these lanes daily?
                     </p>
@@ -122,6 +122,16 @@ export default function SampleReportPage() {
                     >
                       Start free trial →
                     </Link>
+                    <p className="text-xs text-muted-foreground">
+                      Or{" "}
+                      <Link
+                        href="/demo"
+                        className="text-primary underline underline-offset-2 hover:text-primary/80 transition-colors font-medium"
+                      >
+                        book a 20-min demo
+                      </Link>{" "}
+                      — want Nick to walk you through this live?
+                    </p>
                   </div>
                 </div>
               ) : (

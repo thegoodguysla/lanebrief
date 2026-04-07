@@ -178,6 +178,9 @@ export default function DashboardPage() {
   const justUpgraded = searchParams.get("upgraded") === "1";
   const [showGettingStarted, setShowGettingStarted] = useState(isNewUser);
   const [activeTab, setActiveTab] = useState<"lanes" | "roi">("lanes");
+  const [shareEmail, setShareEmail] = useState("");
+  const [shareStatus, setShareStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
+  const [referralCount, setReferralCount] = useState(0);
 
   const fetchCarrierRiskScores = useCallback((carrierIds: string[]) => {
     for (const carrierId of carrierIds) {
@@ -362,6 +365,7 @@ export default function DashboardPage() {
         setLaneLimit(lanesData.laneLimit ?? null);
         setBriefs(briefsData.briefs ?? []);
         setInitialized(true);
+        fetch("/api/reports/referral-count").then((r) => r.json()).then((d) => setReferralCount(d.count ?? 0)).catch(() => {});
         fetchAvCoverage(loadedLanes.map((l) => l.id));
         fetchTenderScores(loadedLanes.map((l) => l.id));
         fetchForecasts(loadedLanes.map((l) => l.id));
@@ -398,6 +402,31 @@ export default function DashboardPage() {
     if (res.ok) {
       const data = await res.json();
       setBriefs(data.briefs);
+    }
+  }
+
+  async function shareReport(e: React.FormEvent) {
+    e.preventDefault();
+    if (!shareEmail.includes("@")) return;
+    setShareStatus("sending");
+    try {
+      const res = await fetch("/api/reports/share", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ referredEmail: shareEmail }),
+      });
+      if (res.ok) {
+        setShareStatus("sent");
+        setShareEmail("");
+        setReferralCount((c) => c + 1);
+        setTimeout(() => setShareStatus("idle"), 4000);
+      } else {
+        setShareStatus("error");
+        setTimeout(() => setShareStatus("idle"), 3000);
+      }
+    } catch {
+      setShareStatus("error");
+      setTimeout(() => setShareStatus("idle"), 3000);
     }
   }
 
@@ -1187,6 +1216,50 @@ export default function DashboardPage() {
             </div>
           </section>
         )}
+        {/* Share Weekly Report */}
+        {activeTab === "lanes" && lanes.length > 0 && (
+          <section className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-medium uppercase tracking-wider text-muted-foreground">
+                Share Weekly Report
+              </h2>
+              {referralCount > 0 && (
+                <span className="text-xs text-muted-foreground">
+                  You&apos;ve referred {referralCount} colleague{referralCount !== 1 ? "s" : ""}
+                </span>
+              )}
+            </div>
+            <div className="rounded-lg border border-border p-4 space-y-3">
+              <p className="text-sm text-muted-foreground">
+                Send this week&apos;s freight market report to a colleague — they&apos;ll get a co-branded snapshot of your lanes.
+              </p>
+              <form onSubmit={shareReport} className="flex gap-2">
+                <Input
+                  type="email"
+                  placeholder="colleague@company.com"
+                  value={shareEmail}
+                  onChange={(e) => setShareEmail(e.target.value)}
+                  disabled={shareStatus === "sending"}
+                  className="flex-1 text-sm"
+                />
+                <Button
+                  type="submit"
+                  disabled={shareStatus === "sending" || !shareEmail.includes("@")}
+                  size="sm"
+                >
+                  {shareStatus === "sending" ? "Sending…" : "Send report"}
+                </Button>
+              </form>
+              {shareStatus === "sent" && (
+                <p className="text-xs text-emerald-600 font-medium">Report sent! They&apos;ll receive an email with your lane intelligence.</p>
+              )}
+              {shareStatus === "error" && (
+                <p className="text-xs text-destructive">Failed to send — please try again.</p>
+              )}
+            </div>
+          </section>
+        )}
+
         {/* Autonomous corridor coverage map (beta) */}
         {activeTab === "lanes" && autonomousBeta && (
           <section className="space-y-3">

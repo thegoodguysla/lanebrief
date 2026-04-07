@@ -252,8 +252,8 @@ export default function LaneBriefLanding() {
             <a href="#get-started" className={cn(buttonVariants({ size: "lg" }), "bg-primary text-primary-foreground hover:bg-primary/90 text-base px-8")}>
               Get Your Free Lane Brief
             </a>
-            <a href="#sample" className={cn(buttonVariants({ size: "lg", variant: "outline" }), "text-base border-border/60 hover:bg-muted/50")}>
-              See a sample report →
+            <a href="/demo" className={cn(buttonVariants({ size: "lg", variant: "outline" }), "text-base border-border/60 hover:bg-muted/50")}>
+              Book a Demo →
             </a>
           </div>
 
