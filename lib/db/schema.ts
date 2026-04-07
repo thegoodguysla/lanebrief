@@ -25,9 +25,14 @@ export const users = pgTable("users", {
   planTier: text("plan_tier").notNull().default("free"), // 'free' | 'pro'
   subscriptionStatus: text("subscription_status"), // 'active' | 'trialing' | 'past_due' | 'canceled' | null
   subscriptionId: text("subscription_id"),
+  subscriptionCreatedAt: timestamp("subscription_created_at"),
   trialEndsAt: timestamp("trial_ends_at"),
   // Affiliate attribution (set on signup from ?ref= cookie)
   affiliateCode: text("affiliate_code"),
+  // Annual upsell email tracking — set when Day-14 annual upsell email is sent
+  annualUpsellSentAt: timestamp("annual_upsell_sent_at"),
+  // Team membership — set when user belongs to a team (owner or member)
+  teamId: text("team_id"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
 });
@@ -334,3 +339,90 @@ export type AffiliateEarning = typeof affiliateEarnings.$inferSelect;
 export type NewAffiliateEarning = typeof affiliateEarnings.$inferInsert;
 export type AffiliatePayout = typeof affiliatePayouts.$inferSelect;
 export type NewAffiliatePayout = typeof affiliatePayouts.$inferInsert;
+
+// ─── Testimonials ─────────────────────────────────────────────────────────────
+
+export const testimonialTokens = pgTable("testimonial_tokens", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  tokenHash: text("token_hash").notNull().unique(),
+  expiresAt: timestamp("expires_at").notNull(),
+  usedAt: timestamp("used_at"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  index("testimonial_tokens_user_idx").on(t.userId),
+  index("testimonial_tokens_hash_idx").on(t.tokenHash),
+]);
+
+export const testimonials = pgTable("testimonials", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
+  rating: integer("rating").notNull(), // 1–5
+  text: text("text"), // optional, 280 char limit
+  name: text("name").notNull(),
+  title: text("title"), // optional job title / company
+  approved: boolean("approved").notNull().default(false),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  index("testimonials_approved_idx").on(t.approved),
+]);
+
+export type TestimonialToken = typeof testimonialTokens.$inferSelect;
+export type NewTestimonialToken = typeof testimonialTokens.$inferInsert;
+export type Testimonial = typeof testimonials.$inferSelect;
+export type NewTestimonial = typeof testimonials.$inferInsert;
+
+// ─── Sales Pipeline ───────────────────────────────────────────────────────────
+
+export const prospects = pgTable("prospects", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  email: text("email").notNull(),
+  company: text("company"),
+  stage: text("stage").notNull().default("replied"), // 'replied' | 'demo_booked' | 'trial_active' | 'paid' | 'churned'
+  replySnippet: text("reply_snippet"),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  index("prospects_stage_idx").on(t.stage),
+  index("prospects_email_idx").on(t.email),
+]);
+
+export type Prospect = typeof prospects.$inferSelect;
+export type NewProspect = typeof prospects.$inferInsert;
+
+// ─── Team Accounts ────────────────────────────────────────────────────────────
+
+export const teams = pgTable("teams", {
+  id: text("id").primaryKey(),
+  ownerUserId: text("owner_user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  stripeSubscriptionId: text("stripe_subscription_id"),
+  seatCount: integer("seat_count").notNull().default(3),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (t) => [
+  index("teams_owner_idx").on(t.ownerUserId),
+]);
+
+export const teamMembers = pgTable("team_members", {
+  id: text("id").primaryKey(),
+  teamId: text("team_id").notNull().references(() => teams.id, { onDelete: "cascade" }),
+  userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
+  email: text("email").notNull(),
+  status: text("status").notNull().default("pending"), // 'pending' | 'active'
+  inviteToken: text("invite_token").unique(),
+  inviteExpiresAt: timestamp("invite_expires_at"),
+  invitedAt: timestamp("invited_at").notNull().defaultNow(),
+  joinedAt: timestamp("joined_at"),
+}, (t) => [
+  index("team_members_team_idx").on(t.teamId),
+  index("team_members_token_idx").on(t.inviteToken),
+  unique("team_members_team_email").on(t.teamId, t.email),
+]);
+
+export type Team = typeof teams.$inferSelect;
+export type NewTeam = typeof teams.$inferInsert;
+export type TeamMember = typeof teamMembers.$inferSelect;
+export type NewTeamMember = typeof teamMembers.$inferInsert;

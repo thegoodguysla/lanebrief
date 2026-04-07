@@ -5,6 +5,7 @@ import { users, onboardingEmails, affiliates } from "@/lib/db/schema";
 import { eq } from "drizzle-orm";
 import { randomUUID } from "crypto";
 import { Resend } from "resend";
+import { notifyNewSignup } from "@/lib/notify";
 
 const FROM = "Nick Taylor <nick@email.lanebrief.com>";
 const REPLY_TO = "nick@lanebrief.com";
@@ -102,8 +103,9 @@ export async function POST() {
     })
     .returning();
 
-  // Fire-and-forget: send Email 1 of onboarding drip
+  // Fire-and-forget: send Email 1 of onboarding drip + owner notification
   sendEmail1(newUser.id, newUser.email);
+  notifyNewSignup({ email: newUser.email, source: verifiedAffiliateCode ? `affiliate:${verifiedAffiliateCode}` : refCode });
 
   return Response.json({ user: newUser }, { status: 201 });
 }
