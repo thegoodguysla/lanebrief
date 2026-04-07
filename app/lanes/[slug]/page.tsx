@@ -6,6 +6,7 @@ import { rateSnapshots } from "@/lib/db/schema";
 import { and, desc, ilike, gte } from "drizzle-orm";
 import { generateText } from "ai";
 import { CORRIDOR_MAP, CORRIDORS, relatedCorridors, cityName } from "@/lib/corridors";
+import { LaneChat } from "@/components/lane-chat";
 
 // ISR: regenerate every 24 hours
 export const revalidate = 86400;
@@ -437,6 +438,23 @@ export default async function LanePage({
           </div>
         </main>
       </div>
+
+      <LaneChat
+        lane={{
+          origin,
+          destination,
+          currentRate: data.currentRate,
+          marketAvg: data.marketAvg,
+          direction: data.direction,
+          pctChange: data.pctChange,
+          confidence: data.confidence,
+          reasoning: data.reasoning,
+          capacityLevel: data.capacityLevel,
+          capacityReasoning: data.capacityReasoning,
+          tariff,
+          sparkline: data.sparkline,
+        }}
+      />
     </>
   );
 }

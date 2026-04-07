@@ -479,3 +479,24 @@ export const smsVerificationCodes = pgTable("sms_verification_codes", {
 
 export type SmsVerificationCode = typeof smsVerificationCodes.$inferSelect;
 export type NewSmsVerificationCode = typeof smsVerificationCodes.$inferInsert;
+
+// ─── Lane Chat ────────────────────────────────────────────────────────────────
+
+// Logs every chat message for quality review and future fine-tuning
+export const chatMessages = pgTable("chat_messages", {
+  id: text("id").primaryKey(),
+  // null for unauthenticated (rate-limited by IP via daily_count)
+  userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
+  origin: text("origin").notNull(),
+  destination: text("destination").notNull(),
+  role: text("role").notNull(), // 'user' | 'assistant'
+  content: text("content").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => [
+  index("chat_messages_user_idx").on(t.userId),
+  index("chat_messages_lane_idx").on(t.origin, t.destination),
+  index("chat_messages_created_idx").on(t.createdAt),
+]);
+
+export type ChatMessage = typeof chatMessages.$inferSelect;
+export type NewChatMessage = typeof chatMessages.$inferInsert;
