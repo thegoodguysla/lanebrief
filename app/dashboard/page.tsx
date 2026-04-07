@@ -171,8 +171,11 @@ export default function DashboardPage() {
   const [highRiskWarning, setHighRiskWarning] = useState<{ carrier: AutonomousCarrierData; riskData: CarrierRiskData } | null>(null);
   const [isPro, setIsPro] = useState(false);
   const [laneLimit, setLaneLimit] = useState<number | null>(3);
-  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [upgradeContext, setUpgradeContext] = useState<"lane_limit" | "forecast" | "carrier_risk" | null>(null);
   const [checkoutLoading, setCheckoutLoading] = useState(false);
+  const [trialEndsAt, setTrialEndsAt] = useState<Date | null>(null);
+  const [trialBannerDismissed, setTrialBannerDismissed] = useState(false);
+  const [riskViewCount, setRiskViewCount] = useState(0);
   const avOnly = searchParams.get("avOnly") === "1";
   const isNewUser = searchParams.get("newUser") === "1";
   const justUpgraded = searchParams.get("upgraded") === "1";
@@ -199,6 +202,22 @@ export default function DashboardPage() {
                 reasoning: data.reasoning,
               },
             }));
+            // Track free-tier daily usage — trigger gate after 5 views
+            setIsPro((currentIsPro) => {
+              if (!currentIsPro) {
+                setRiskViewCount((c) => {
+                  const today = new Date().toISOString().slice(0, 10);
+                  const riskKey = `risk_view_count_${today}`;
+                  const next = c + 1;
+                  localStorage.setItem(riskKey, String(next));
+                  if (next > 5) {
+                    setUpgradeContext("carrier_risk");
+                  }
+                  return next;
+                });
+              }
+              return currentIsPro;
+            });
           })
           .catch(() => {
             setCarrierRiskScores((p) => {
@@ -343,12 +362,22 @@ export default function DashboardPage() {
   useEffect(() => {
     if (!isLoaded || !user || initialized) return;
 
+    // Load localStorage state
+    const today = new Date().toISOString().slice(0, 10);
+    const dismissedKey = `trial_banner_dismissed_${today}`;
+    setTrialBannerDismissed(localStorage.getItem(dismissedKey) === "1");
+    const riskKey = `risk_view_count_${today}`;
+    setRiskViewCount(Number(localStorage.getItem(riskKey) ?? 0));
+
     fetch("/api/user/sync", { method: "POST" })
       .then((r) => r.json())
       .then((userData) => {
         setAlertOptIn(userData.user?.alertOptIn ?? false);
         setAlertMode(userData.user?.alertMode ?? "digest");
         setAutonomousBeta(userData.user?.autonomousBeta ?? false);
+        if (userData.user?.trialEndsAt) {
+          setTrialEndsAt(new Date(userData.user.trialEndsAt));
+        }
         return Promise.all([
           fetch("/api/lanes").then((r) => r.json()),
           fetch("/api/briefs").then((r) => r.json()),
@@ -444,7 +473,7 @@ export default function DashboardPage() {
       if (!res.ok) {
         const data = await res.json();
         if (data.code === "LANE_LIMIT_REACHED") {
-          setShowUpgradeModal(true);
+          setUpgradeContext("lane_limit");
           return;
         }
         setError(data.error ?? "Failed to add lane");
@@ -563,14 +592,15 @@ export default function DashboardPage() {
     );
   }
 
-  async function handleUpgradeCheckout() {
+  async function handleUpgradeCheckout(annual = false) {
     setCheckoutLoading(true);
     try {
       const { STRIPE_PRICES } = await import("@/lib/stripe");
+      const priceId = annual ? STRIPE_PRICES.proAnnual : STRIPE_PRICES.proMonthly;
       const res = await fetch("/api/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ priceId: STRIPE_PRICES.proMonthly }),
+        body: JSON.stringify({ priceId }),
       });
       const data = await res.json();
       if (data.url) window.location.href = data.url;
@@ -579,39 +609,92 @@ export default function DashboardPage() {
     }
   }
 
+  function dismissTrialBanner() {
+    const today = new Date().toISOString().slice(0, 10);
+    localStorage.setItem(`trial_banner_dismissed_${today}`, "1");
+    setTrialBannerDismissed(true);
+  }
+
+  function trackRiskView() {
+    if (isPro) return;
+    const today = new Date().toISOString().slice(0, 10);
+    const riskKey = `risk_view_count_${today}`;
+    const next = riskViewCount + 1;
+    localStorage.setItem(riskKey, String(next));
+    setRiskViewCount(next);
+    if (next > 5) {
+      setUpgradeContext("carrier_risk");
+    }
+  }
+
+  const trialDaysLeft =
+    trialEndsAt && !isPro
+      ? Math.ceil((trialEndsAt.getTime() - Date.now()) / 86400000)
+      : null;
+
   return (
     <div className="min-h-screen bg-background text-foreground">
-      {/* Upgrade modal */}
-      {showUpgradeModal && (
+      {/* Upgrade modal — contextual copy per gate */}
+      {upgradeContext !== null && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
           <div className="bg-background border border-border rounded-xl shadow-xl max-w-sm w-full p-6 space-y-4">
             <div className="space-y-1">
-              <h2 className="font-semibold text-lg">You&apos;ve used all 3 free lanes</h2>
-              <p className="text-sm text-muted-foreground">
-                Upgrade to LaneBrief Pro for unlimited lanes, 7-day forecasts, and your full Portfolio Intelligence View.
-              </p>
+              {upgradeContext === "lane_limit" && (
+                <>
+                  <h2 className="font-semibold text-lg">You have 3 lanes — the free limit</h2>
+                  <p className="text-sm text-muted-foreground">
+                    Upgrade to Pro for unlimited lanes, 7-day rate forecasts, and carrier risk scores on every lane.
+                  </p>
+                </>
+              )}
+              {upgradeContext === "forecast" && (
+                <>
+                  <h2 className="font-semibold text-lg">See where rates are heading</h2>
+                  <p className="text-sm text-muted-foreground">
+                    7-day rate forecasts show you whether to lock in capacity now or wait. Unlock before your competition does.
+                  </p>
+                </>
+              )}
+              {upgradeContext === "carrier_risk" && (
+                <>
+                  <h2 className="font-semibold text-lg">You&apos;ve used your 5 free risk scores today</h2>
+                  <p className="text-sm text-muted-foreground">
+                    Pro gives you unlimited carrier risk scores — know which carriers are double-brokering risks before you tender.
+                  </p>
+                </>
+              )}
             </div>
             <div className="rounded-lg bg-primary/5 border border-primary/20 px-4 py-3 text-sm space-y-1">
-              <div className="font-semibold text-primary">LaneBrief Pro — $79/month</div>
+              <div className="font-semibold text-primary">LaneBrief Pro</div>
               <ul className="text-muted-foreground space-y-0.5 text-xs">
                 <li>✓ Unlimited lanes</li>
-                <li>✓ 7-day rate forecasts</li>
+                <li>✓ 7-day rate forecasts on all lanes</li>
                 <li>✓ Unlimited carrier risk scores</li>
                 <li>✓ Rate alerts + tariff flags</li>
               </ul>
             </div>
-            <div className="flex gap-2">
+            <div className="space-y-2">
               <Button
-                className="flex-1 bg-primary text-primary-foreground hover:bg-primary/90"
-                onClick={handleUpgradeCheckout}
+                className="w-full bg-primary text-primary-foreground hover:bg-primary/90"
+                onClick={() => handleUpgradeCheckout(false)}
                 disabled={checkoutLoading}
               >
-                {checkoutLoading ? "Redirecting..." : "Upgrade to Pro →"}
+                {checkoutLoading ? "Redirecting…" : upgradeContext === "carrier_risk" ? "Get unlimited scores — $79/mo" : upgradeContext === "forecast" ? "Unlock forecasts — $79/mo" : "Upgrade to Pro — $79/mo"}
               </Button>
-              <Button variant="outline" onClick={() => setShowUpgradeModal(false)}>
-                Later
-              </Button>
+              <button
+                className="w-full text-xs text-muted-foreground hover:text-foreground text-center"
+                onClick={() => handleUpgradeCheckout(true)}
+                disabled={checkoutLoading}
+              >
+                Annual: $699/yr — saves $249
+              </button>
             </div>
+            <button
+              className="w-full text-xs text-muted-foreground hover:text-foreground text-center"
+              onClick={() => setUpgradeContext(null)}
+            >
+              Maybe later
+            </button>
           </div>
         </div>
       )}
@@ -619,6 +702,28 @@ export default function DashboardPage() {
       {justUpgraded && (
         <div className="bg-primary/10 border-b border-primary/20 px-4 py-2 text-sm text-center text-primary font-medium">
           Welcome to Pro! All features are now unlocked.
+        </div>
+      )}
+      {/* Trial expiry banner — days 1–14 before trial ends */}
+      {trialDaysLeft !== null && trialDaysLeft > 0 && trialDaysLeft <= 14 && !trialBannerDismissed && (
+        <div className="bg-amber-50 border-b border-amber-200 px-4 py-2 flex items-center justify-between gap-4 dark:bg-amber-950/30 dark:border-amber-700/40">
+          <p className="text-sm text-amber-800 dark:text-amber-300">
+            Your Pro trial ends in <span className="font-semibold">{trialDaysLeft} day{trialDaysLeft !== 1 ? "s" : ""}</span> —{" "}
+            <button
+              onClick={() => handleUpgradeCheckout(false)}
+              className="underline font-medium hover:no-underline"
+              disabled={checkoutLoading}
+            >
+              Keep Pro for $79/mo
+            </button>
+          </p>
+          <button
+            onClick={dismissTrialBanner}
+            aria-label="Dismiss"
+            className="text-amber-600 hover:text-amber-800 text-lg leading-none shrink-0 dark:text-amber-400"
+          >
+            ✕
+          </button>
         </div>
       )}
       {/* Nav */}
@@ -880,7 +985,20 @@ export default function DashboardPage() {
                             ◌ forecast…
                           </span>
                         )}
-                        {forecast && forecast !== "loading" && forecast !== "insufficient" && forecast.direction === "up" && (
+                        {forecast && forecast !== "loading" && forecast !== "insufficient" && !isPro && (
+                          <button
+                            type="button"
+                            title="Unlock 7-day rate forecasts with Pro"
+                            onClick={() => setUpgradeContext("forecast")}
+                            className="relative inline-flex items-center gap-1 rounded-full border border-primary/30 bg-primary/5 px-2 py-0.5 text-[10px] font-medium text-primary/60 cursor-pointer hover:border-primary/60 hover:text-primary transition-colors"
+                          >
+                            <span className="blur-[3px] select-none pointer-events-none">
+                              {forecast.direction === "up" ? `▲ +${Math.abs(forecast.pctChange).toFixed(1)}%` : forecast.direction === "down" ? `▼ -${Math.abs(forecast.pctChange).toFixed(1)}%` : "→ flat"} 7d
+                            </span>
+                            <span className="absolute inset-0 flex items-center justify-center text-[9px] font-semibold text-primary">🔒 Pro</span>
+                          </button>
+                        )}
+                        {forecast && forecast !== "loading" && forecast !== "insufficient" && isPro && forecast.direction === "up" && (
                           <span
                             title={`7-day forecast: rates expected UP ${Math.abs(forecast.pctChange).toFixed(1)}% · ${forecast.confidence} confidence · ${forecast.reasoning}`}
                             className="inline-flex items-center gap-1 rounded-full border border-red-300/60 bg-red-50/60 px-2 py-0.5 text-[10px] font-medium text-red-700 dark:bg-red-950/20 dark:text-red-400 dark:border-red-600/30 cursor-help"
@@ -888,7 +1006,7 @@ export default function DashboardPage() {
                             ▲ +{Math.abs(forecast.pctChange).toFixed(1)}% 7d
                           </span>
                         )}
-                        {forecast && forecast !== "loading" && forecast !== "insufficient" && forecast.direction === "down" && (
+                        {forecast && forecast !== "loading" && forecast !== "insufficient" && isPro && forecast.direction === "down" && (
                           <span
                             title={`7-day forecast: rates expected DOWN ${Math.abs(forecast.pctChange).toFixed(1)}% · ${forecast.confidence} confidence · ${forecast.reasoning}`}
                             className="inline-flex items-center gap-1 rounded-full border border-emerald-300/60 bg-emerald-50/60 px-2 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-950/20 dark:text-emerald-500 dark:border-emerald-600/30 cursor-help"
@@ -896,7 +1014,7 @@ export default function DashboardPage() {
                             ▼ -{Math.abs(forecast.pctChange).toFixed(1)}% 7d
                           </span>
                         )}
-                        {forecast && forecast !== "loading" && forecast !== "insufficient" && forecast.direction === "flat" && (
+                        {forecast && forecast !== "loading" && forecast !== "insufficient" && isPro && forecast.direction === "flat" && (
                           <span
                             title={`7-day forecast: rates expected FLAT · ${forecast.confidence} confidence · ${forecast.reasoning}`}
                             className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/40 px-2 py-0.5 text-[10px] font-medium text-muted-foreground cursor-help"
